@@ -1,0 +1,1 @@
+{"expo":{"name":"Smart Island","slug":"smart-island","android":{"package":"com.smartisland.app"},"plugins":["expo-sqlite","./plugins/withIsland"]}}
