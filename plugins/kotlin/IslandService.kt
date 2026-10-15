@@ -1,16 +1,18 @@
 package com.smartisland.app
 import android.app.*; import android.content.*; import android.graphics.*; import android.graphics.drawable.GradientDrawable
 import android.os.*; import android.view.*; import android.widget.*
+import android.provider.Settings; import android.annotation.SuppressLint
 import androidx.core.app.NotificationCompat
 
 /** Foreground service that owns the overlay pill. State is pushed from JS via IslandModule.update(). */
+@SuppressLint("NewApi")
 class IslandService : Service() {
   private lateinit var wm: WindowManager; private var root: LinearLayout? = null
   private lateinit var title: TextView; private lateinit var sub: TextView; private lateinit var art: ImageView
   private var spin: ObjectAnimatorHolder? = null
   companion object { var inst: IslandService? = null }
 
-  override fun onBind(i: Intent?) = null
+  override fun onBind(i: Intent?): IBinder? = null
   override fun onCreate() {
     super.onCreate(); inst = this
     val ch = "island"; val nm = getSystemService(NotificationManager::class.java)

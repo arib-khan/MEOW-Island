@@ -1,1 +1,22 @@
-{"expo":{"name":"Smart Island","slug":"smart-island","android":{"package":"com.smartisland.app"},"plugins":["expo-sqlite","./plugins/withIsland"]}}
+{
+  "expo": {
+    "name": "Smart Island",
+    "slug": "smart-island",
+    "android": {
+      "package": "com.smartisland.app"
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.25"
+          }
+        }
+      ],
+      "./plugins/withIsland"
+    ]
+  }
+}

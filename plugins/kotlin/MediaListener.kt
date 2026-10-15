@@ -1,9 +1,10 @@
 package com.smartisland.app
-import android.content.ComponentName; import android.media.MediaMetadata; import android.media.session.*
+import android.annotation.SuppressLint; import android.content.ComponentName; import android.media.MediaMetadata; import android.media.session.*
 import android.service.notification.NotificationListenerService
 import java.io.ByteArrayOutputStream; import android.graphics.Bitmap
 
 /** NotificationListenerService grants access to MediaSessions => real song/artist/art/playback state + controls. */
+@SuppressLint("NewApi")
 class MediaListener : NotificationListenerService() {
   companion object { var controller: MediaController? = null; var lastNotif: Triple<String,String,String>? = null }
   private var msm: MediaSessionManager? = null
@@ -28,7 +29,7 @@ class MediaListener : NotificationListenerService() {
     val bytes = bmp?.let { ByteArrayOutputStream().also { o -> Bitmap.createScaledBitmap(it,96,96,true).compress(Bitmap.CompressFormat.JPEG,80,o) }.toByteArray() }
     IslandService.inst?.render(m?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "", m?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: "", bytes, playing, 6000)
     IslandModule.emit("media", mapOf("title" to (m?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""), "artist" to (m?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""),
-      "playing" to playing, "position" to (c.playbackState?.position ?: 0L), "duration" to (m?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)))
+      "playing" to playing, "position" to (c.playbackState?.position ?: 0L).toDouble(), "duration" to (m?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L).toDouble()))
   }
   override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
     val e = sbn.notification.extras

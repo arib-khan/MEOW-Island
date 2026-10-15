@@ -1,9 +1,11 @@
 package com.smartisland.app
 import android.app.AppOpsManager; import android.content.*; import android.net.Uri; import android.os.*; import android.provider.Settings
 import android.app.usage.UsageStatsManager
+import androidx.core.content.ContextCompat; import android.annotation.SuppressLint
 import com.facebook.react.bridge.*; import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.ReactPackage; import com.facebook.react.uimanager.ViewManager
 
+@SuppressLint("NewApi")
 class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJavaModule(ctx) {
   companion object { var rc: ReactApplicationContext? = null
     fun emit(n: String, d: Map<String, Any>) { rc?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(n, Arguments.makeNativeMap(d)) } }
@@ -15,9 +17,9 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
   @ReactMethod fun hasNotificationAccess(p: Promise) = p.resolve(Settings.Secure.getString(ctx.contentResolver,"enabled_notification_listeners")?.contains(ctx.packageName) == true)
   @ReactMethod fun requestNotificationAccess() = ctx.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
   @ReactMethod fun hasUsageAccess(p: Promise) { val a = ctx.getSystemService(AppOpsManager::class.java)
-    p.resolve(a.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName) == AppOpsManager.MODE_ALLOWED) }
+    p.resolve(a.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName) == AppOpsManager.MODE_ALLOWED) }
   @ReactMethod fun requestUsageAccess() = ctx.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-  @ReactMethod fun startIsland() { ctx.startForegroundService(Intent(ctx, IslandService::class.java)) }
+  @ReactMethod fun startIsland() { ContextCompat.startForegroundService(ctx, Intent(ctx, IslandService::class.java)) }
   @ReactMethod fun stopIsland() { ctx.stopService(Intent(ctx, IslandService::class.java)) }
   /** JS pushes the highest-priority activity text; media is rendered natively by MediaListener. */
   @ReactMethod fun show(title: String, sub: String) { IslandService.inst?.render(title, sub, null, false, 6000) }
