@@ -1,60 +1,92 @@
-import React, { useEffect, useState } from 'react';
-import { NativeModules, NativeEventEmitter, View, Text, Button, TextInput, ScrollView, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StatusBar, Text, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Battery from 'expo-battery';
-import { initDb, listReminders, Reminder, deleteReminder, completeReminder, setLimit } from './core/db';
-import { scheduleReminder, setupReminderActions, snooze } from './core/reminders';
-import { upsert, remove, bindSink, PRIORITY } from './core/activities';
-import { startGuardian } from './core/guardian';
-const N = NativeModules.IslandModule;
+import { available, nativeCurrent, native } from './native';
+import { initDb } from './core/db';
+import { setupReminderActions, snooze } from './core/reminders';
+import { ConfigProvider } from './config';
+import { C, ErrorBox, H, Loading, Sub } from './ui';
+import Home from './screens/Home';
+import Reminders from './screens/Reminders';
+import ScreenTime from './screens/ScreenTime';
+import Settings from './screens/Settings';
+
 class Boundary extends React.Component<{ children: React.ReactNode }, { err?: Error }> {
   state: { err?: Error } = {};
   static getDerivedStateFromError(err: Error) { return { err }; }
   render() {
     return this.state.err
-      ? <ScrollView style={s.c}><Text style={s.h}>App error</Text><Text selectable>{String(this.state.err.stack ?? this.state.err.message)}</Text></ScrollView>
+      ? <ScrollView style={{ flex: 1, backgroundColor: C.bg, padding: 20, paddingTop: 60 }}><H>Something went wrong</H><ErrorBox text={String(this.state.err.stack ?? this.state.err.message)} /></ScrollView>
       : this.props.children;
   }
 }
-export default function App() {
-  return <Boundary>{N ? <Screen /> : <ScrollView style={s.c}><Text style={s.h}>Native module missing</Text>
-    <Text selectable>{'IslandModule was not registered. Open android/app/src/main/java/com/smartisland/app/MainApplication.kt and add add(IslandPackage()) inside the PackageList(this).packages.apply block, then rebuild.'}</Text></ScrollView>}</Boundary>;
+
+const TABS = [{ k: 'Home', i: '🏝' }, { k: 'Reminders', i: '⏰' }, { k: 'Screen Time', i: '⏱' }, { k: 'Settings', i: '⚙️' }];
+
+function Shell() {
+  const [tab, setTab] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const go = (i: number) => { if (i === tab) return; Animated.timing(fade, { toValue: 0, duration: 90, useNativeDriver: true }).start(() => { setTab(i); Animated.timing(fade, { toValue: 1, duration: 160, useNativeDriver: true }).start(); }); };
+
+  useEffect(() => {
+    const rec = Notifications.addNotificationReceivedListener((n) => native.postActivity('reminder', 90, '⏰ ' + (n.request.content.body ?? 'Reminder'), 'Reminder', 15000));
+    const resp = Notifications.addNotificationResponseReceivedListener((r) => { if (r.actionIdentifier === 'snooze') snooze(r.notification.request.content.body ?? 'Reminder'); });
+    Battery.getBatteryLevelAsync().then((l) => { if (l > 0 && l < 0.15) native.postActivity('battery', 40, `🔋 ${Math.round(l * 100)}%`, 'Low battery', 6000); }).catch(() => {});
+    return () => { rec.remove(); resp.remove(); };
+  }, []);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: StatusBar.currentHeight ?? 24 }}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={{ paddingHorizontal: 20, paddingVertical: 12 }}><Text style={{ color: C.text, fontSize: 26, fontWeight: '900' }}>VYBE</Text><Sub>Smart Island</Sub></View>
+      <Animated.View style={{ flex: 1, opacity: fade }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+          {tab === 0 && <Home goSettings={() => go(3)} />}
+          {tab === 1 && <Reminders />}
+          {tab === 2 && <ScreenTime />}
+          {tab === 3 && <Settings />}
+        </ScrollView>
+      </Animated.View>
+      <View style={{ flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: 8 }}>
+        {TABS.map((t, i) => (
+          <Pressable key={t.k} accessibilityRole="tab" accessibilityState={{ selected: tab === i }} accessibilityLabel={t.k} onPress={() => go(i)} style={{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 20, opacity: tab === i ? 1 : 0.5 }}>{t.i}</Text>
+            <Text style={{ fontSize: 11, color: tab === i ? C.accent : C.sub, fontWeight: tab === i ? '700' : '400' }}>{t.k}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
 }
-function Screen() {
+
+function Root() {
+  const [ready, setReady] = useState(false);
   const [err, setErr] = useState('');
-  const [perm, setPerm] = useState({ overlay: false, notif: false, usage: false });
-  const [rems, setRems] = useState<Reminder[]>([]); const [text, setText] = useState(''); const [mins, setMins] = useState('1'); const [pkg, setPkg] = useState('');
-  const refresh = async () => { setPerm({ overlay: await N.hasOverlay(), notif: await N.hasNotificationAccess(), usage: await N.hasUsageAccess() }); setRems(await listReminders()); };
   useEffect(() => {
     (async () => {
       try {
-        await initDb(); await setupReminderActions(); await Notifications.requestPermissionsAsync(); await refresh();
-        bindSink(a => N.show(a?.title ?? '', a?.sub ?? ''));
-        const ev = new NativeEventEmitter(N);
-        ev.addListener('notification', (n: any) => upsert({ id: 'n', priority: PRIORITY.notification, title: n.title, sub: n.text, expiresAt: Date.now() + 5000 }));
-        Notifications.addNotificationReceivedListener(n => upsert({ id: 'r', priority: PRIORITY.reminder, title: '⏰ ' + n.request.content.body, expiresAt: Date.now() + 15000 }));
-        Notifications.addNotificationResponseReceivedListener(r => { const t = r.notification.request.content.body ?? ''; if (r.actionIdentifier === 'snooze') snooze(t); });
-        const lvl = await Battery.getBatteryLevelAsync(); if (lvl < 0.15) upsert({ id: 'b', priority: PRIORITY.battery, title: `🔋 ${Math.round(lvl * 100)}%`, expiresAt: Date.now() + 5000 });
-        startGuardian();
+        await initDb();
+        await setupReminderActions();
+        Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }) });
+        setReady(true);
       } catch (e: any) { setErr(String(e?.stack ?? e)); }
     })();
   }, []);
-  const row = (label: string, ok: boolean, act: () => void) => <View style={s.row}><Text>{label}: {ok ? '✅' : '❌'}</Text>{!ok && <Button title="Grant" onPress={act} />}</View>;
-  return <ScrollView style={s.c}>
-    <Text style={s.h}>Smart Island</Text>{!!err && <Text selectable style={{ color: 'red' }}>{err}</Text>}
-    {row('Overlay (needed to draw island)', perm.overlay, N.requestOverlay)}
-    {row('Notification access (music + notifications)', perm.notif, N.requestNotificationAccess)}
-    {row('Usage access (Screen Time Guardian)', perm.usage, N.requestUsageAccess)}
-    <Button title="Refresh permissions" onPress={refresh} /><Button title="Start island" onPress={() => N.startIsland()} /><Button title="Stop island" onPress={() => N.stopIsland()} />
-    <Text style={s.h}>Reminder</Text>
-    <TextInput style={s.in} placeholder="Note" value={text} onChangeText={setText} />
-    <TextInput style={s.in} placeholder="Minutes from now" keyboardType="numeric" value={mins} onChangeText={setMins} />
-    <Button title="Schedule" onPress={async () => { await scheduleReminder(text, new Date(Date.now() + Number(mins) * 60000), 'none'); setText(''); refresh(); }} />
-    {rems.map(r => <View key={r.id} style={s.row}><Text>{r.text} — {new Date(r.at).toLocaleString()}</Text>
-      <Button title="✓" onPress={async () => { await completeReminder(r.id); refresh(); }} /><Button title="🗑" onPress={async () => { await deleteReminder(r.id); refresh(); }} /></View>)}
-    <Text style={s.h}>Screen time limit (package, 1 min demo)</Text>
-    <TextInput style={s.in} placeholder="com.instagram.android" autoCapitalize="none" value={pkg} onChangeText={setPkg} />
-    <Button title="Set 1-min limit" onPress={() => setLimit(pkg, 1)} />
-  </ScrollView>;
+  if (err) return <ScrollView style={{ flex: 1, backgroundColor: C.bg, padding: 20, paddingTop: 60 }}><H>Startup failed</H><ErrorBox text={err} /></ScrollView>;
+  if (!ready) return <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center' }}><Loading label="Starting…" /></View>;
+  return <ConfigProvider><Shell /></ConfigProvider>;
 }
-const s = StyleSheet.create({ c: { padding: 16, marginTop: 40 }, h: { fontSize: 20, fontWeight: '700', marginVertical: 10 }, row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 }, in: { borderWidth: 1, borderColor: '#999', padding: 8, marginVertical: 4 } });
+
+export default function App() {
+  return (
+    <Boundary>
+      {available && nativeCurrent ? <Root /> : (
+        <ScrollView style={{ flex: 1, backgroundColor: C.bg, padding: 20, paddingTop: 60 }}>
+          <H>{available ? 'Outdated native build' : 'Native module missing'}</H>
+          <Sub>{'This APK was built without the current native code. The previous "npx expo prebuild --platform android --clean" probably failed (EBUSY: a folder was locked). Stop Gradle, close terminals/Explorer windows inside the android folder, run prebuild again from the project root, confirm it prints "Finished prebuild" with no error, then rebuild.'}</Sub>
+        </ScrollView>
+      )}
+    </Boundary>
+  );
+}

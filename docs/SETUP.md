@@ -2,6 +2,17 @@
 
 > Status: source code only. Never compiled or run by the author. Expect small Kotlin/Gradle fixes on first build. See README.md for what is and isn't implemented.
 
+## 0. Updating an existing checkout to this revision
+Copy over `src/`, `plugins/` (all files) and `docs/`. `package.json`/`app.json` need no change. Then:
+```
+cd <project root>
+npx expo prebuild --platform android --clean
+cd android
+.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+`prebuild --clean` is required now: the plugin adds new manifest entries (boot receiver, narrow app-visibility query) and registers the native module. If it stops with `withIsland: PackageList(this).packages not found`, paste your `MainApplication.kt` and I will adapt the plugin.
+Uninstall nothing; install over the old APK (turn Play Protect scanning off if it blocks the sideload).
+
 ## 1. Prerequisites
 | Tool | Version | Check |
 |---|---|---|
@@ -57,7 +68,8 @@ Denying a permission only disables the feature that needs it. Revoking one later
 - Android 14+: Settings > Apps > Special access > *Alarms & reminders* > allow Smart Island (exact reminders).
 - Reboot restart is NOT implemented yet; open the app and tap Start island after a reboot.
 
-## 6. Testing checklist
+## 6. Testing checklist (tests A-G)
+Overlay: Start island, press Home, open another app: pill stays; Stop removes it. Permissions: each Grant button opens the right page; status flips after returning. Music: play in a media app; title/art/CD; pause stops rotation. Screen time: Add app (picker, search), set 1 min, use the app >1 min: 😡; leave: 😊 once. Notifications: grant Notification access, send yourself a notification. Reminders: schedule +2 min, background the app; it fires and shows on the island. Persistence: force-close and reopen; settings, limits and reminders remain.
 - [ ] Pill appears at top after Start island, over other apps
 - [ ] Play music (Spotify/YouTube Music): title, artist, art show; art spins; pausing stops spin
 - [ ] Send yourself a notification: preview appears for ~5 s
@@ -75,6 +87,13 @@ Denying a permission only disables the feature that needs it. Revoking one later
 | No music info | Notification access not granted, or the player exposes no media session |
 | Pill never shows | Overlay permission off, or OEM killed the service (section 5) |
 | Package names for limits | Find with `adb shell pm list packages | grep <name>` |
+
+## 7b. Windows build notes
+- Use PowerShell commands one per line (older PowerShell has no `&&`). Run Gradle as `.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a`.
+- Build from a SHORT path (e.g. `C:\si`) if any native library fails with "mkdir ... No such file or directory" (Windows 250-char limit). Before moving the folder run `.\gradlew.bat --stop` and close editors/terminals using it.
+- Run `npx expo ...` only inside the folder containing package.json, otherwise npx fetches the obsolete global expo-cli.
+- Kotlin version is pinned to 1.9.25 via expo-build-properties (needed by expo-modules-core 2.2.3).
+- Reanimated was removed (long C++ paths, not used yet).
 
 ## 8. Project layout
 ```

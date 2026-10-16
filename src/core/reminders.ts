@@ -13,3 +13,8 @@ export async function setupReminderActions() {
     { identifier: 'snooze', buttonTitle: 'Snooze 10m' }, { identifier: 'done', buttonTitle: 'Done' }]);
 }
 export const snooze = (text: string, min = 10) => scheduleReminder(text, new Date(Date.now()+min*60000), 'none');
+
+// Deleting/editing a reminder must also cancel its OS alarm, otherwise the old one still fires.
+export async function cancelReminder(r: Reminder) {
+  if (r.notifId) { try { await Notifications.cancelScheduledNotificationAsync(r.notifId); } catch { /* already gone */ } }
+}

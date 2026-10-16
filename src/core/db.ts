@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-export type Reminder = { id: number; text: string; at: number; repeat: 'none'|'daily'|'weekly'; done: number };
+export type Reminder = { id: number; text: string; at: number; repeat: 'none'|'daily'|'weekly'; done: number; notifId?: string };
 let db: SQLite.SQLiteDatabase;
 export async function initDb() {
   db = await SQLite.openDatabaseAsync('island.db');

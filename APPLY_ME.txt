@@ -1,0 +1,17 @@
+Unzip INTO the project root (the folder containing package.json), overwrite when asked.
+
+IMPORTANT - why you saw a white screen: the last 'prebuild --clean' failed with EBUSY, so the new Kotlin code never reached android/.
+Do these steps IN ORDER, one command per line, in PowerShell:
+
+  cd C:\Users\hp\Downloads\smart-island\smart-island\android
+  .\gradlew.bat --stop
+  cd ..
+  taskkill /F /IM java.exe
+  Remove-Item -Recurse -Force android
+  npx expo prebuild --platform android --clean
+  cd android
+  .\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
+
+(taskkill only stops leftover Gradle/Java processes; Remove-Item may say 'not found' if it is already gone - that is fine.)
+Prebuild MUST end with 'Finished prebuild' and no red error before you run gradlew.
+Close any File Explorer window or terminal that is open inside the android folder first.
