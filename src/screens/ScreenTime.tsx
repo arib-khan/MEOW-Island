@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { Btn, Card, C, Chip, Empty, ErrorBox, H, Loading, Stepper, Sub, Toggle } from '../ui';
 import { AppInfo, native, usePerms } from '../native';
 import { LimitItem, useConfig } from '../config';
@@ -42,10 +42,11 @@ export default function ScreenTime() {
     <View>
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Screen Time Guardian</H><Chip ok={perms.usage} label={perms.usage ? 'Usage access on' : 'Usage access off'} /></View>
-        <Sub>Shows 😡 on the island while you are still in an app past its daily limit and 😊 briefly when you leave. It only gives feedback and never blocks or closes apps. Detection can lag a few seconds because Android delivers usage events in batches.</Sub>
+        <Sub>While you are still in an app past its daily limit the island shows 😾, expands with your usage every few minutes, and shows 😺 briefly when you leave. It only gives feedback and never blocks or closes apps. Detection can lag a few seconds because Android delivers usage events in batches.</Sub>
         <View style={{ height: 8 }} />
         <Toggle label="Enable monitoring" value={cfg.guardEnabled} onChange={(v) => update({ guardEnabled: v })} />
-        {!perms.usage && <><Sub>Usage Access is required. On the next screen open Smart Island and allow access.</Sub><View style={{ height: 8 }} /><Btn title="Grant Usage Access" onPress={() => native.requestUsageAccess()} /></>}
+        <Stepper label="Remind every" value={cfg.remindMin} min={1} max={30} step={1} unit=" min" onChange={(v) => update({ remindMin: v })} />
+        {!perms.usage && <><Sub>Usage Access is required. On the next screen open Meow Island and allow access.</Sub><View style={{ height: 8 }} /><Btn title="Grant Usage Access" onPress={() => native.requestUsageAccess()} /></>}
         {!!usageErr && <ErrorBox text={usageErr} />}
       </Card>
 
@@ -54,7 +55,7 @@ export default function ScreenTime() {
         cfg.limits.map((l) => {
           const used = (usage[l.pkg] ?? 0) / 60000; const left = Math.max(0, l.limitMin - used); const over = used > l.limitMin;
           return (
-            <Card key={l.pkg}>
+            <Card key={l.pkg} style={over && l.enabled ? { borderColor: C.bad } : undefined}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Icon a={byPkg[l.pkg]} />
                 <View style={{ flex: 1, marginLeft: 12 }}>
@@ -64,7 +65,7 @@ export default function ScreenTime() {
                 <Toggle label="" value={l.enabled} onChange={(v) => patch(l.pkg, { enabled: v })} />
               </View>
               <View style={{ height: 6, backgroundColor: C.line, borderRadius: 3, marginTop: 10 }}><View style={{ height: 6, borderRadius: 3, width: `${Math.min(100, (used / l.limitMin) * 100)}%`, backgroundColor: over ? C.bad : C.accent }} /></View>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}><Btn small kind="ghost" title="Edit limit" onPress={() => setEditPkg(l.pkg)} /><Btn small kind="danger" title="Remove" onPress={() => setLimits(cfg.limits.filter((x) => x.pkg !== l.pkg))} /></View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}><Btn small kind="ghost" title="Edit limit" onPress={() => setEditPkg(l.pkg)} /><Btn small kind="danger" title="Remove" onPress={() => Alert.alert('Stop monitoring?', `Remove the limit for ${l.name}?`, [{ text: 'Keep', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => setLimits(cfg.limits.filter((x) => x.pkg !== l.pkg)) }])} /></View>
             </Card>
           );
         })}

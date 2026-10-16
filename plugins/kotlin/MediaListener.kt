@@ -9,6 +9,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -96,11 +97,16 @@ class MediaListener : NotificationListenerService() {
         val actions = st?.actions ?: 0L
         val canNext = (actions and PlaybackState.ACTION_SKIP_TO_NEXT) != 0L
         val canPrev = (actions and PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0L
-        IslandBus.post(Act("music", 50, title, artist, art = small, spinning = playing))
+        var pos = st?.position ?: 0L
+        if (playing && st != null && st.lastPositionUpdateTime > 0L)
+            pos += ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong()
+        val dur = m?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        IslandBus.post(Act("music", 50, title, artist, art = small, spinning = playing, playing = playing,
+            canPrev = canPrev, canNext = canNext, posMs = pos, durMs = dur, posAt = System.currentTimeMillis()))
         val snap = HashMap<String, Any>()
         snap["active"] = true; snap["title"] = title; snap["artist"] = artist; snap["playing"] = playing
-        snap["position"] = (st?.position ?: 0L).toDouble()
-        snap["duration"] = (m?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L).toDouble()
+        snap["position"] = pos.toDouble()
+        snap["duration"] = dur.toDouble()
         snap["canNext"] = canNext; snap["canPrev"] = canPrev
         snap["art"] = if (small != null) Img.b64(small, false) else ""
         snap["app"] = c.packageName ?: ""
@@ -138,7 +144,7 @@ class MediaListener : NotificationListenerService() {
         val cfg = Cfg.read(this)
         if (own) {
             val body = if (text.isNotEmpty()) text else title
-            IslandBus.post(Act("reminder", 90, "\u23F0 " + body, "Reminder", expireAt = System.currentTimeMillis() + 15000L, expand = true))
+            IslandBus.post(Act("reminder", 90, "\u23F0 " + body, "Reminder", expireAt = System.currentTimeMillis() + 15000L, expand = true, pulse = System.currentTimeMillis()))
             return
         }
         if (!cfg.optBoolean("notifEnabled", true)) return
@@ -147,7 +153,7 @@ class MediaListener : NotificationListenerService() {
         val t = if (preview && title.isNotEmpty()) title else app
         val sub = if (preview) (app + (if (text.isNotEmpty()) " \u00B7 $text" else "")) else "New notification"
         IslandBus.post(Act("notif", 60, t, sub, icon = appIcon(sbn.packageName),
-            expireAt = System.currentTimeMillis() + cfg.optInt("expandMs", 5000) + 1500L, expand = true))
+            expireAt = System.currentTimeMillis() + cfg.optInt("expandMs", 5000) + 1500L, expand = true, pulse = System.currentTimeMillis()))
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) { seen.remove(sbn.key) }

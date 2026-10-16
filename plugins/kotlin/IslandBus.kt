@@ -10,6 +10,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.os.Process
 import android.util.Base64
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Calendar
@@ -18,7 +19,11 @@ import java.util.Calendar
 data class Act(
     val id: String, val priority: Int, val title: String, val sub: String = "",
     val emoji: String = "", val icon: Bitmap? = null, val art: Bitmap? = null,
-    val spinning: Boolean = false, val expireAt: Long = 0L, val expand: Boolean = false
+    val spinning: Boolean = false, val expireAt: Long = 0L, val expand: Boolean = false,
+    /** Changes whenever a NEW event happens; a changed pulse re-expands the island. */
+    val pulse: Long = 0L,
+    val playing: Boolean = false, val canPrev: Boolean = false, val canNext: Boolean = false,
+    val posMs: Long = 0L, val durMs: Long = 0L, val posAt: Long = 0L
 )
 
 /** Process-wide activity registry. Lives natively so it keeps working while JS is suspended. */
@@ -112,5 +117,62 @@ object UsageUtil {
         }
         for (k in ArrayList(open.keys)) close(k, now)
         return total
+    }
+}
+
+object Fmt {
+    fun clock(ms: Long): String {
+        val t = maxOf(0L, ms / 1000L)
+        val h = t / 3600; val m = (t % 3600) / 60; val sec = t % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%02d:%02d", m, sec)
+    }
+    fun min(ms: Long): String = (maxOf(0L, ms) / 60000L).toString() + " min"
+}
+
+/** Foreground-app tracker built from usage events (needs Usage Access). Throttled to save battery. */
+object Fg {
+    @Volatile var pkg: String? = null
+    @Volatile var available = false
+    private var lastScan = 0L
+
+    fun update(ctx: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastScan < 1500L) return
+        available = UsageUtil.hasAccess(ctx)
+        if (!available) { pkg = null; lastScan = now; return }
+        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val from = if (lastScan == 0L) now - 3L * 3600000L else lastScan - 2000L
+        val ev = usm.queryEvents(from, now)
+        val e = UsageEvents.Event()
+        while (ev.hasNextEvent()) {
+            ev.getNextEvent(e)
+            when (e.eventType) {
+                1 -> pkg = e.packageName
+                2 -> if (e.packageName == pkg) pkg = null
+                16, 17 -> pkg = null
+            }
+        }
+        lastScan = now
+    }
+}
+
+/** Countdown timers keyed by absolute end timestamps, persisted natively (survive restarts). */
+object Timers {
+    fun all(ctx: Context): JSONArray = try {
+        JSONArray(ctx.getSharedPreferences("island", 0).getString("timers", "[]") ?: "[]")
+    } catch (e: Exception) { JSONArray() }
+
+    fun save(ctx: Context, arr: JSONArray) { ctx.getSharedPreferences("island", 0).edit().putString("timers", arr.toString()).apply() }
+
+    fun add(ctx: Context, id: String, label: String, endAt: Long, notifId: String) {
+        val arr = all(ctx)
+        val t = JSONObject(); t.put("id", id); t.put("label", label); t.put("endAt", endAt); t.put("notifId", notifId)
+        arr.put(t); save(ctx, arr)
+    }
+
+    fun remove(ctx: Context, id: String) {
+        val arr = all(ctx); val keep = JSONArray()
+        for (i in 0 until arr.length()) { val t = arr.optJSONObject(i) ?: continue; if (t.optString("id") != id) keep.put(t) }
+        save(ctx, keep)
     }
 }

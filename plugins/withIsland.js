@@ -1,5 +1,5 @@
 // Expo config plugin: manifest permissions/services + copies Kotlin sources + registers package.
-const { withAndroidManifest, withDangerousMod, withMainApplication } = require('@expo/config-plugins');
+const { withAndroidManifest, withDangerousMod, withMainApplication, withAndroidStyles } = require('@expo/config-plugins');
 const fs = require('fs'), path = require('path');
 const PKG = 'com.smartisland.app';
 module.exports = (config) => {
@@ -10,12 +10,37 @@ module.exports = (config) => {
     perms.forEach(p => { if (!m['uses-permission'].some(x => x.$['android:name']===`android.permission.${p}`)) m['uses-permission'].push({$:{'android:name':`android.permission.${p}`}}); });
     const app = m.application[0]; app.service = app.service || [];
     app.service.push({$:{'android:name':'.IslandService','android:foregroundServiceType':'specialUse','android:exported':'false'},property:[{$:{'android:name':'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE','android:value':'floating overlay'}}]});
-    app.service.push({$:{'android:name':'.MediaListener','android:exported':'true','android:label':'Smart Island','android:permission':'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'},'intent-filter':[{action:[{$:{'android:name':'android.service.notification.NotificationListenerService'}}]}]});
+    app.service.push({$:{'android:name':'.MediaListener','android:exported':'true','android:label':'Meow Island','android:permission':'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'},'intent-filter':[{action:[{$:{'android:name':'android.service.notification.NotificationListenerService'}}]}]});
     // Narrow package visibility: only launchable apps (MAIN/LAUNCHER), no QUERY_ALL_PACKAGES.
     m.queries = m.queries || [];
     m.queries.push({ intent: [{ action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }], category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }] }] });
     app.receiver = app.receiver || [];
     app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });
+    return c;
+  });
+  // Branded launch window (dark background + cat logo) shown before React Native draws its first frame.
+  config = withDangerousMod(config, ['android', (c) => {
+    const res = path.join(c.modRequest.platformProjectRoot, 'app/src/main/res');
+    fs.mkdirSync(path.join(res, 'drawable'), { recursive: true });
+    fs.mkdirSync(path.join(res, 'drawable-nodpi'), { recursive: true });
+    const logo = path.join(c.modRequest.projectRoot, 'assets/splash-icon.png');
+    if (fs.existsSync(logo)) fs.copyFileSync(logo, path.join(res, 'drawable-nodpi/meow_logo.png'));
+    fs.writeFileSync(path.join(res, 'drawable/meow_splash.xml'),
+      '<?xml version="1.0" encoding="utf-8"?>\n<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n' +
+      '  <item><shape android:shape="rectangle"><solid android:color="#0E0B16"/></shape></item>\n' +
+      '  <item android:gravity="center" android:width="140dp" android:height="140dp"><bitmap android:src="@drawable/meow_logo" android:gravity="fill"/></item>\n</layer-list>\n');
+    fs.writeFileSync(path.join(res, 'drawable/ic_meow.xml'),
+      '<?xml version="1.0" encoding="utf-8"?>\n<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">\n' +
+      '  <path android:fillColor="#FFFFFFFF" android:pathData="M3.5,9.5 L4.5,2.5 L10,6.2 Q12,5.8 14,6.2 L19.5,2.5 L20.5,9.5 Q21,12 20.5,14 Q19,21 12,21 Q5,21 3.5,14 Q3,12 3.5,9.5 Z"/>\n</vector>\n');
+    return c;
+  }]);
+  config = withAndroidStyles(config, (c) => {
+    const styles = c.modResults.resources.style || [];
+    const app = styles.find((x) => x.$ && x.$.name === 'AppTheme');
+    if (app) {
+      app.item = (app.item || []).filter((i) => i.$.name !== 'android:windowBackground');
+      app.item.push({ $: { name: 'android:windowBackground' }, _: '@drawable/meow_splash' });
+    }
     return c;
   });
   config = withDangerousMod(config, ['android', (c) => {

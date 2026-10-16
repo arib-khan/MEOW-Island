@@ -1,11 +1,48 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { Btn, Card, C, Empty, ErrorBox, H, Loading, Stepper, Sub } from '../ui';
 import { deleteReminder, completeReminder, listReminders, Reminder } from '../core/db';
 import { cancelReminder, scheduleReminder } from '../core/reminders';
+import { cancelTimer, startTimer } from '../core/timers';
+import { native, TimerInfo } from '../native';
 
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+const clock = (ms: number) => { const t = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), x = t % 60; const p = (n: number) => String(n).padStart(2, '0'); return h ? `${h}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`; };
+
+function Timers() {
+  const [list, setList] = useState<TimerInfo[] | null>(null);
+  const [label, setLabel] = useState('');
+  const [mins, setMins] = useState(10);
+  const [msg, setMsg] = useState('');
+  const [now, setNow] = useState(Date.now());
+  const load = () => native.getTimers().then(setList).catch(() => setList([]));
+  useEffect(() => { load(); const id = setInterval(() => { setNow(Date.now()); }, 1000); const id2 = setInterval(load, 8000); return () => { clearInterval(id); clearInterval(id2); }; }, []);
+  const start = async () => {
+    try {
+      let perm = await Notifications.getPermissionsAsync();
+      if (!perm.granted) perm = await Notifications.requestPermissionsAsync();
+      if (!perm.granted) return setMsg('Notifications are blocked, so the timer could not alert you. Enable them under Settings → Permissions.');
+      await startTimer(label, mins); setLabel(''); setMsg(''); load();
+    } catch (e: any) { setMsg(e?.message ?? String(e)); }
+  };
+  return (
+    <Card>
+      <H>Timer</H>
+      <TextInput value={label} onChangeText={setLabel} placeholder="Label (optional)" placeholderTextColor={C.sub} accessibilityLabel="Timer label" style={{ color: C.text, backgroundColor: C.card2, borderRadius: 12, padding: 12, minHeight: 48, marginBottom: 6 }} />
+      <Stepper label="Duration" value={mins} min={1} max={180} step={5} unit=" min" onChange={setMins} />
+      <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>{[1, 5, 10, 25, 45].map((m) => <Pressable key={m} accessibilityRole="button" onPress={() => setMins(m)} style={{ paddingHorizontal: 12, minHeight: 36, justifyContent: 'center', borderRadius: 18, backgroundColor: mins === m ? C.accent : C.card2 }}><Text style={{ color: mins === m ? C.onAccent : C.text }}>{m}m</Text></Pressable>)}</View>
+      {!!msg && <ErrorBox text={msg} />}
+      <Btn title="Start timer" onPress={start} />
+      {list && list.length > 0 && <View style={{ marginTop: 12 }}>{list.map((t) => (
+        <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 48 }}>
+          <View style={{ flex: 1 }}><Text style={{ color: C.text, fontWeight: '700' }}>{clock(t.endAt - now)}</Text><Sub>{t.label}</Sub></View>
+          <Btn small kind="ghost" title="Cancel" onPress={async () => { await cancelTimer(t); load(); }} />
+        </View>))}<Sub>The island shows the remaining time while it is running.</Sub></View>}
+    </Card>
+  );
+}
 
 export default function Reminders() {
   const [items, setItems] = useState<Reminder[] | null>(null);
@@ -40,7 +77,7 @@ export default function Reminders() {
     setEditing(r); setText(r.text); setRep(r.repeat); setHh(d.getHours()); setMm(d.getMinutes());
     setDay(Math.max(0, Math.min(6, Math.round((new Date(d).setHours(0, 0, 0, 0) - t0.getTime()) / 86400000)))); setMsg('');
   };
-  const remove = async (r: Reminder) => { await cancelReminder(r); await deleteReminder(r.id); load(); };
+  const remove = (r: Reminder) => Alert.alert('Delete reminder?', r.text, [{ text: 'Keep', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await cancelReminder(r); await deleteReminder(r.id); load(); } }]);
   const done = async (r: Reminder) => { await cancelReminder(r); await completeReminder(r.id); load(); };
 
   const dayChip = (i: number) => {
@@ -52,6 +89,7 @@ export default function Reminders() {
 
   return (
     <View>
+      <Timers />
       <Card>
         <H>{editing ? 'Edit reminder' : 'New reminder'}</H>
         <TextInput value={text} onChangeText={setText} placeholder="What should I remind you about?" placeholderTextColor={C.sub} accessibilityLabel="Reminder note"

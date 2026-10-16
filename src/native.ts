@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 const N: any = NativeModules.IslandModule;
 export const available = !!N;
 /** False when the installed APK was built from older native code (e.g. prebuild --clean failed). */
-export const nativeCurrent = !!N && typeof N.getNativeVersion === 'function';
+export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 3;
 export const events = N ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);
 
 export type AppInfo = { pkg: string; name: string; icon: string };
+export type TimerInfo = { id: string; label: string; endAt: number; notifId: string };
 export type Media = { active: boolean; title?: string; artist?: string; playing?: boolean; position?: number; duration?: number; canNext?: boolean; canPrev?: boolean; art?: string };
 
 export const native = {
@@ -24,6 +25,9 @@ export const native = {
   lastError: (): Promise<string> => N.lastError(),
   setConfig: (json: string) => N.setConfig(json),
   postActivity: (id: string, priority: number, title: string, sub: string, ttlMs: number) => N.postActivity(id, priority, title, sub, ttlMs),
+  startTimer: (label: string, endAtMs: number, notifId: string): Promise<string> => N.startTimer(label, endAtMs, notifId),
+  cancelTimer: (id: string): Promise<boolean> => N.cancelTimer(id),
+  getTimers: (): Promise<TimerInfo[]> => N.getTimers(),
   getMedia: (): Promise<Media> => N.getMedia(),
   mediaControl: (a: 'play' | 'pause' | 'next' | 'prev') => N.mediaControl(a),
   getInstalledApps: (): Promise<AppInfo[]> => N.getInstalledApps(),

@@ -1,13 +1,27 @@
 {
   "expo": {
-    "name": "Smart Island",
+    "name": "Meow Island",
     "slug": "smart-island",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E0B16",
     "android": {
-      "package": "com.smartisland.app"
+      "package": "com.smartisland.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#16102A"
+      }
     },
     "plugins": [
       "expo-sqlite",
       "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#B79CFF"
+        }
+      ],
       [
         "expo-build-properties",
         {

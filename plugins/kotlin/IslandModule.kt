@@ -37,8 +37,8 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     init { rc = ctx }
     override fun getName() = "IslandModule"
 
-    /** Bumped whenever the JS<->native contract changes, so a stale native build is detected. */
-    @ReactMethod fun getNativeVersion(p: Promise) { p.resolve(2) }
+    /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 3)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -94,9 +94,30 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
         MediaListener.inst?.refresh()
     }
     @ReactMethod fun postActivity(id: String, priority: Int, title: String, sub: String, ttlMs: Double) {
-        IslandBus.post(Act(id, priority, title, sub, expireAt = if (ttlMs > 0) System.currentTimeMillis() + ttlMs.toLong() else 0L, expand = true))
+        IslandBus.post(Act(id, priority, title, sub, expireAt = if (ttlMs > 0) System.currentTimeMillis() + ttlMs.toLong() else 0L, expand = true, pulse = System.currentTimeMillis()))
     }
     @ReactMethod fun removeActivity(id: String) { IslandBus.remove(id) }
+
+    // ---- timers (absolute end timestamps, persisted natively) ----
+    @ReactMethod fun startTimer(label: String, endAtMs: Double, notifId: String, p: Promise) {
+        val id = System.currentTimeMillis().toString()
+        Timers.add(ctx, id, label, endAtMs.toLong(), notifId)
+        p.resolve(id)
+    }
+    @ReactMethod fun cancelTimer(id: String, p: Promise) { Timers.remove(ctx, id); IslandBus.remove("timer"); p.resolve(true) }
+    @ReactMethod fun getTimers(p: Promise) {
+        val arr = Arguments.createArray()
+        val all = Timers.all(ctx)
+        for (i in 0 until all.length()) {
+            val t = all.optJSONObject(i) ?: continue
+            if (t.optLong("endAt") <= System.currentTimeMillis()) continue
+            val m = Arguments.createMap()
+            m.putString("id", t.optString("id")); m.putString("label", t.optString("label"))
+            m.putDouble("endAt", t.optLong("endAt").toDouble()); m.putString("notifId", t.optString("notifId"))
+            arr.pushMap(m)
+        }
+        p.resolve(arr)
+    }
 
     // ---- music ----
     @ReactMethod fun getMedia(p: Promise) { p.resolve(Arguments.makeNativeMap(MediaListener.snapshot)) }

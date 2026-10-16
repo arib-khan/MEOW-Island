@@ -1,8 +1,18 @@
-# Smart Island — Setup Guide
+# Meow Island — Setup Guide
 
 > Status: source code only. Never compiled or run by the author. Expect small Kotlin/Gradle fixes on first build. See README.md for what is and isn't implemented.
 
-## 0. Updating an existing checkout to this revision
+## 0. Updating to the Meow Island revision
+Work from your short copy (for example `C:\si`). Unzip the update over it, then run each line separately:
+```
+cd C:\si
+npx expo prebuild --platform android --clean
+cd android
+.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+Prebuild must print `Finished prebuild` with no red error (it applies the new icon, launch window, manifest entries and Kotlin). Install over the old app; the launcher label and icon change to Meow Island. No new npm packages are required.
+
+## 0b. Previous update notes
 Copy over `src/`, `plugins/` (all files) and `docs/`. `package.json`/`app.json` need no change. Then:
 ```
 cd <project root>
@@ -55,17 +65,17 @@ Install: `adb install -r android/app/build/outputs/apk/release/app-release.apk`,
 
 ## 4. First-run permissions (in order)
 1. **Allow notifications** — popup on first launch (needed for reminders).
-2. **Overlay** — tap Grant, enable "Allow display over other apps" for Smart Island.
-3. **Notification access** — tap Grant, enable Smart Island. Required for music info/controls and notification previews. On Android 13+ sideloaded apps may show "Restricted setting": open App info > ⋮ > *Allow restricted settings*, then retry.
-4. **Usage access** — tap Grant, enable Smart Island. Required for Screen Time Guardian.
+2. **Overlay** — tap Grant, enable "Allow display over other apps" for Meow Island.
+3. **Notification access** — tap Grant, enable Meow Island. Required for music info/controls and notification previews. On Android 13+ sideloaded apps may show "Restricted setting": open App info > ⋮ > *Allow restricted settings*, then retry.
+4. **Usage access** — tap Grant, enable Meow Island. Required for Screen Time Guardian.
 5. Return to the app, tap **Refresh permissions**, then **Start island**.
 
 Denying a permission only disables the feature that needs it. Revoking one later shows ❌ again after refresh.
 
 ## 5. Keep it alive (important)
-- Settings > Apps > Smart Island > Battery > **Unrestricted**.
+- Settings > Apps > Meow Island > Battery > **Unrestricted**.
 - Xiaomi/Oppo/Vivo/Huawei/Samsung: enable Autostart and lock the app in Recents; disable "sleeping apps"/"adaptive battery" for it.
-- Android 14+: Settings > Apps > Special access > *Alarms & reminders* > allow Smart Island (exact reminders).
+- Android 14+: Settings > Apps > Special access > *Alarms & reminders* > allow Meow Island (exact reminders).
 - Reboot restart is NOT implemented yet; open the app and tap Start island after a reboot.
 
 ## 6. Testing checklist (tests A-G)

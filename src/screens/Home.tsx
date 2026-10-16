@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, Text, View } from 'react-native';
-import { Btn, Card, Chip, C, ErrorBox, H, Sub } from '../ui';
+import { Btn, Card, Chip, C, ErrorBox, H, Sub, useReduceMotion } from '../ui';
+import { useConfig } from '../config';
 import { events, Media, native, usePerms } from '../native';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** CD that rotates only while playing and resumes from the same angle. */
-function Disc({ art, playing }: { art?: string; playing: boolean }) {
+function Disc({ art, playing: playingProp }: { art?: string; playing: boolean }) {
+  const reduce = useReduceMotion();
+  const playing = playingProp && !reduce;
   const rot = useRef(new Animated.Value(0)).current;
   const pos = useRef(0);
   useEffect(() => {
@@ -40,7 +43,7 @@ function NowPlaying() {
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => { sub.remove(); clearInterval(id); };
   }, []);
-  if (!m.active) return <Card><H>Now playing</H><Sub>No active media session. Start music in any player; it appears here and on the island. Notification access must be granted (Settings → Permissions).</Sub></Card>;
+  if (!m.active) return <Card><H>Now playing</H><Sub>Nothing is playing. Start music in any player and it appears here and on the island. This needs Notification access (see the setup card above).</Sub></Card>;
   const pos = (m.position ?? 0) + (m.playing ? Date.now() - stamp : 0);
   const pct = m.duration ? Math.min(1, pos / m.duration) : 0;
   const ctl = (label: string, a: 'prev' | 'play' | 'pause' | 'next', on = true) => (
@@ -64,8 +67,9 @@ function NowPlaying() {
   );
 }
 
-export default function Home({ goSettings }: { goSettings: () => void }) {
+export default function Home({ go }: { go: (i: number) => void }) {
   const perms = usePerms();
+  const { cfg } = useConfig();
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +85,7 @@ export default function Home({ goSettings }: { goSettings: () => void }) {
   const start = async () => {
     setError('');
     if (!(await native.hasOverlay())) {
-      Alert.alert('Permission needed', 'Smart Island draws a pill over other apps, which Android treats as a special permission.\n\nOn the next screen switch on "Allow display over other apps", then come back here.',
+      Alert.alert('Permission needed', 'Meow Island draws a pill over other apps, which Android treats as a special permission.\n\nOn the next screen switch on "Allow display over other apps", then come back here.',
         [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => native.requestOverlay() }]);
       return;
     }
@@ -97,6 +101,19 @@ export default function Home({ goSettings }: { goSettings: () => void }) {
   };
   const stop = async () => { setBusy(true); try { await native.stopIsland(); await sleep(300); setRunning(await native.isRunning()); } catch (e: any) { setError(e?.message ?? String(e)); } setBusy(false); };
 
+  const setupItems = [
+    { k: 'overlay', t: 'Display over other apps', ok: perms.overlay, act: () => native.requestOverlay() },
+    { k: 'listener', t: 'Notification access (music, notifications, reminders on the island)', ok: perms.listener, act: () => native.requestNotificationAccess() },
+    { k: 'usage', t: 'Usage Access (screen time, full-screen hiding)', ok: perms.usage, act: () => native.requestUsageAccess() },
+  ];
+  const pending = setupItems.filter((i) => !i.ok);
+  const features = [
+    { t: 'Music', on: cfg.musicEnabled && perms.listener },
+    { t: 'Notifications', on: cfg.notifEnabled && perms.listener },
+    { t: 'Screen time', on: cfg.guardEnabled && perms.usage && cfg.limits.length > 0 },
+    { t: 'Reminders', on: perms.notif },
+    { t: 'Video hiding', on: cfg.hideFullscreen && perms.usage },
+  ];
   return (
     <View>
       <Card>
@@ -104,7 +121,21 @@ export default function Home({ goSettings }: { goSettings: () => void }) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}><Sub>Overlay permission</Sub><Chip ok={perms.overlay} label={perms.overlay ? 'Granted' : 'Not granted'} /></View>
         {!!error && <ErrorBox text={error} />}
         {running ? <Btn title={busy ? 'Stopping…' : 'Stop island'} kind="danger" disabled={busy} onPress={stop} /> : <Btn title={busy ? 'Starting…' : 'Start island'} disabled={busy} onPress={start} />}
-        {!perms.listener && <View style={{ marginTop: 12 }}><Sub>Music, notifications and reminders on the island need notification access.</Sub><View style={{ height: 8 }} /><Btn small kind="ghost" title="Review permissions" onPress={goSettings} /></View>}
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+          <View style={{ flex: 1 }}><Btn small kind="ghost" title="Add reminder" onPress={() => go(1)} /></View>
+          <View style={{ flex: 1 }}><Btn small kind="ghost" title="Island position" onPress={() => go(3)} /></View>
+        </View>
+      </Card>
+      {pending.length > 0 && (
+        <Card>
+          <H>Finish setup</H>
+          <Sub>Meow Island needs a few Android permissions. Each opens the right settings page, and the status updates when you come back.</Sub>
+          {pending.map((i) => <View key={i.k} style={{ marginTop: 10 }}><Text style={{ color: C.text, marginBottom: 6 }}>{i.t}</Text><View style={{ alignSelf: 'flex-start' }}><Btn small title="Grant" onPress={i.act} /></View></View>)}
+        </Card>
+      )}
+      <Card>
+        <H>Active features</H>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{features.map((f) => <Chip key={f.t} ok={f.on} label={`${f.t}: ${f.on ? 'on' : 'off'}`} />)}</View>
       </Card>
       <NowPlaying />
     </View>
