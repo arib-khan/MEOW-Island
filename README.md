@@ -208,7 +208,7 @@ Meow Island is at a **very early stage**, and there is a lot left to improve.
 
 ## 📄 License
 
-No license has been declared in this repository yet. Until a license is added, assume that standard copyright applies; do not assume you have permission to reuse, modify, or redistribute the code.
+Meow Island is released under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, subject to the license terms. See the [`LICENSE`](LICENSE) file for the complete text.
 
 ---
 
