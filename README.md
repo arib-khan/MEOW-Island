@@ -5,29 +5,24 @@ A cat-themed floating island for Android. Expo + React Native (TypeScript) for t
 (`com.smartisland.app`) so installs update in place. See `docs/SETUP.md` to build.
 
 ## What this revision adds
-- **Rebrand to Meow Island**: app name, launcher icon + adaptive icon, branded launch window, notification icon, in-app copy, Notification-access label.
-- **Island position**: drag-to-position editor, presets, X/Y steppers, usable-area vs full-screen mode, drag the real island, reset, persisted. Stored as fractions so it survives rotation/size changes and is clamped on screen.
-- **Layering**: `TYPE_APPLICATION_OVERLAY`, explicit gravity/insets, cutout and nav-bar aware (3-button and gesture), window sized to the pill so other touches pass through.
-- **Music on the island**: Previous / Play-Pause / Next buttons call the real `MediaController`; CD rotation follows real playback; progress bar; unsupported controls dimmed.
-- **Full-screen video hiding** (best effort, see limits). **Screen-time reminders** every N minutes (default 5) with used / limit / over-by, run natively. **Timers** (absolute end time). Cat ears, 😾/😺 defaults.
+- **Overlay fix (root cause documented in docs/HEALTH.md):** default position is now the status-bar band; position is changed *only* in Settings (on-screen dragging removed); position re-fits on rotation, density, nav-mode and cutout changes; overlay revocation handled.
+- **Optional Health & Wellness** (new Health tab, all off by default, all local): step counter, walking progress island, daily step goal, contribution heatmap (+ optional 7-day preview on the island), water reminders with full schedule editor, Clear health data.
+- Earlier work kept: music buttons, notifications, timers, reminders, Screen Time Guardian (5-minute reminders), customization.
 
 ## Test report (honest)
 | Check | Result |
 |---|---|
-| Kotlin compiles against real Android API 34 jar (RN/AndroidX stubbed) | PASS (0 errors) |
-| TypeScript: syntax + undefined-name check over the whole import tree | PASS |
-| Icon assets generated; launcher icon viewed | PASS (only the icon was visually inspected) |
+| Kotlin compiles against the real Android API 34 jar (RN/AndroidX stubbed) | PASS (0 errors) |
+| Kotlin JVM logic tests: step ledger, walking detector, water schedule | PASS (48 checks) |
+| TypeScript logic tests (`npm test`): persistence, levels, grid, migration | PASS (12 tests) |
+| TypeScript syntax / undefined-name check over the whole import tree | PASS |
 | Gradle build / APK | NOT TESTED here (no Android SDK). Build locally |
-| Positioning, drag, layering over apps, gesture vs 3-button nav | NOT TESTED on a device |
-| Music buttons drive the real player; CD pause/resume; skip | NOT TESTED |
-| Full-screen hide/restore | NOT TESTED |
-| Screen-time reminders (use "Remind every = 1 min" to test), happy emoji, no app blocked | NOT TESTED |
-| Timers, reminders, persistence, reboot restore | NOT TESTED |
+| Everything on a physical device: overlay placement, step sensor, walking mode, goal celebration, heatmap, water alarms/notifications/island actions, music, timers, reminders, screen time | NOT TESTED |
 
 ## Limitations
-- Android has no universal full-screen-video callback. Heuristic: needs Usage Access; the foreground app must own a playing/paused/buffering media session, and the device must be landscape, or (YouTube-type apps) the system bars hidden. Portrait full-screen (Shorts/Reels) detection depends on the bars signal and may not work. Hiding needs 2 consecutive checks (~2 s).
-- Usage events arrive in batches, so emoji/reminder timing can lag seconds. Reminders tick in a foreground service (no polling when the screen is off), not exact alarms.
-- Dragging the island disables the swipe gestures (down/up expand, sideways dismiss); turn drag off to use them.
-- Timers: start/cancel only (no pause/resume). Light theme and onboarding slides are not implemented (dark theme only; a setup card guides permissions).
-- Icons in the tab bar are emoji (no icon font is installed). Reanimated is not used (it broke Windows builds).
-- Android can stop the service on aggressive OEMs, after force-stop, or if a permission is revoked.
+- TYPE_APPLICATION_OVERLAY always sits below the status-bar icons; system dialogs/lock screen/secure windows stay above overlays.
+- Step sensor accuracy and delivery timing vary by phone; walking detection can be delayed. Step features need Physical activity permission and a hardware sensor. Steps near midnight can land on the adjacent day by up to ~30 min.
+- The detector fallback counts only while the island service runs (those days are flagged incomplete).
+- Water reminders use inexact battery-friendly alarms and can be late; island-only reminders need the island running.
+- Full-screen video hiding is a heuristic (see earlier notes). Timers: start/cancel only. Dark theme only. Tab icons are emoji. Reanimated is not used.
+- Android can stop the service on aggressive OEMs, after force-stop, or if permission is revoked.

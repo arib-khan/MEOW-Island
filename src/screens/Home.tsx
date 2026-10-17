@@ -123,7 +123,7 @@ export default function Home({ go }: { go: (i: number) => void }) {
         {running ? <Btn title={busy ? 'Stopping…' : 'Stop island'} kind="danger" disabled={busy} onPress={stop} /> : <Btn title={busy ? 'Starting…' : 'Start island'} disabled={busy} onPress={start} />}
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
           <View style={{ flex: 1 }}><Btn small kind="ghost" title="Add reminder" onPress={() => go(1)} /></View>
-          <View style={{ flex: 1 }}><Btn small kind="ghost" title="Island position" onPress={() => go(3)} /></View>
+          <View style={{ flex: 1 }}><Btn small kind="ghost" title="Island position" onPress={() => go(4)} /></View>
         </View>
       </Card>
       {pending.length > 0 && (

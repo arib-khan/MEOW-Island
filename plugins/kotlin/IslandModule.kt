@@ -38,7 +38,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     override fun getName() = "IslandModule"
 
     /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
-    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 3)
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 4)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -97,6 +97,22 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
         IslandBus.post(Act(id, priority, title, sub, expireAt = if (ttlMs > 0) System.currentTimeMillis() + ttlMs.toLong() else 0L, expand = true, pulse = System.currentTimeMillis()))
     }
     @ReactMethod fun removeActivity(id: String) { IslandBus.remove(id) }
+
+    // ---- optional Health & Wellness (all local, all opt-in) ----
+    @ReactMethod fun setHealthConfig(json: String) {
+        HealthEngine.writeCfg(ctx, json)
+        HealthEngine.configure(ctx)
+        Water.arm(ctx)
+    }
+    @ReactMethod fun getHealthSnapshot(p: Promise) {
+        try { p.resolve(HealthEngine.snapshot(ctx)) } catch (e: Exception) { p.reject("HEALTH_ERROR", e.message ?: "unavailable", e) }
+    }
+    /** One fresh cumulative reading (no-op if disabled, no permission or no sensor). */
+    @ReactMethod fun syncSteps(p: Promise) { HealthEngine.syncOnce(ctx) { p.resolve(true) } }
+    @ReactMethod fun clearHealthData(p: Promise) { HealthEngine.clear(ctx); p.resolve(true) }
+    @ReactMethod fun waterAction(action: String) {
+        when (action) { "done" -> Water.done(ctx); "snooze" -> Water.snooze(ctx); "dismiss" -> Water.dismiss(ctx); "test" -> Water.fire(ctx, 0L, true) }
+    }
 
     // ---- timers (absolute end timestamps, persisted natively) ----
     @ReactMethod fun startTimer(label: String, endAtMs: Double, notifId: String, p: Promise) {

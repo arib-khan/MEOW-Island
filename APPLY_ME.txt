@@ -1,11 +1,20 @@
-MEOW ISLAND update. Unzip INTO your working project folder (the one with package.json, e.g. C:\si), overwrite when asked.
-No new npm packages. Then run, one command per line:
+MEOW ISLAND v3 - cumulative update. Unzip INTO your project folder (the one with package.json, e.g. C:\si).
+Run ONE command per line in PowerShell. The zip name is unique on purpose: if your browser saved it as 'meow-island-v3 (1).zip', use that name.
 
   cd C:\si
+  Expand-Archive -Path "$env:USERPROFILE\Downloads\meow-island-v3.zip" -DestinationPath C:\si -Force
+
+CHECK that the new files really replaced the old ones - each line below MUST print one matching line (if one prints nothing, the old file is still there):
+
+  Select-String -Path plugins\kotlin\IslandBus.kt -Pattern "val water: Boolean"
+  Select-String -Path plugins\kotlin\IslandService.kt -Pattern "wBar"
+  Select-String -Path plugins\kotlin\IslandModule.kt -Pattern "syncSteps"
+  Select-String -Path plugins\kotlin\HealthEngine.kt -Pattern "object HealthEngine"
+
+Only then (prompt must say PS C:\si>, NOT ...\android>):
+
   npx expo prebuild --platform android --clean
   cd android
   .\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
 
-Prebuild MUST end with 'Finished prebuild' and no red error. APK: C:\si\android\app\build\outputs\apk\release\app-release.apk
-Install over the old app (turn Play Protect scanning off if it blocks it). To test the 5-minute reminders quickly,
-set Settings > Screen-time feedback > Remind every = 1 min and a 1-minute limit on an app.
+APK: C:\si\android\app\build\outputs\apk\release\app-release.apk

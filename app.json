@@ -3,7 +3,6 @@
     "name": "Meow Island",
     "slug": "smart-island",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
     "backgroundColor": "#0E0B16",
     "android": {
       "package": "com.smartisland.app",

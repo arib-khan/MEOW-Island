@@ -23,7 +23,14 @@ data class Act(
     /** Changes whenever a NEW event happens; a changed pulse re-expands the island. */
     val pulse: Long = 0L,
     val playing: Boolean = false, val canPrev: Boolean = false, val canNext: Boolean = false,
-    val posMs: Long = 0L, val durMs: Long = 0L, val posAt: Long = 0L
+    val posMs: Long = 0L, val durMs: Long = 0L, val posAt: Long = 0L,
+    /** 0..1 shows the slim progress bar (walking mode); negative hides it. */
+    val prog: Float = -1f,
+    val celebrate: Boolean = false,
+    /** Levels (see DayRec.level) of the last days for the optional contribution preview. */
+    val heat: IntArray? = null,
+    /** Show Done / Snooze / Dismiss buttons (water reminder). */
+    val water: Boolean = false
 )
 
 /** Process-wide activity registry. Lives natively so it keeps working while JS is suspended. */

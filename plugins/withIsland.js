@@ -5,7 +5,7 @@ const PKG = 'com.smartisland.app';
 module.exports = (config) => {
   config = withAndroidManifest(config, (c) => {
     const m = c.modResults.manifest;
-    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS'];
+    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION'];
     m['uses-permission'] = m['uses-permission'] || [];
     perms.forEach(p => { if (!m['uses-permission'].some(x => x.$['android:name']===`android.permission.${p}`)) m['uses-permission'].push({$:{'android:name':`android.permission.${p}`}}); });
     const app = m.application[0]; app.service = app.service || [];
@@ -14,7 +14,12 @@ module.exports = (config) => {
     // Narrow package visibility: only launchable apps (MAIN/LAUNCHER), no QUERY_ALL_PACKAGES.
     m.queries = m.queries || [];
     m.queries.push({ intent: [{ action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }], category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }] }] });
+    // Step sensor is optional hardware; do not hide the app from devices without it.
+    m['uses-feature'] = m['uses-feature'] || [];
+    m['uses-feature'].push({ $: { 'android:name': 'android.hardware.sensor.stepcounter', 'android:required': 'false' } });
     app.receiver = app.receiver || [];
+    app.receiver.push({ $: { 'android:name': '.WaterReceiver', 'android:exported': 'false' } });
+    app.receiver.push({ $: { 'android:name': '.HealthReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });
     return c;
   });

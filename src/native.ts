@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 const N: any = NativeModules.IslandModule;
 export const available = !!N;
 /** False when the installed APK was built from older native code (e.g. prebuild --clean failed). */
-export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 3;
+export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 4;
 export const events = N ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);
 
 export type AppInfo = { pkg: string; name: string; icon: string };
@@ -28,6 +28,11 @@ export const native = {
   startTimer: (label: string, endAtMs: number, notifId: string): Promise<string> => N.startTimer(label, endAtMs, notifId),
   cancelTimer: (id: string): Promise<boolean> => N.cancelTimer(id),
   getTimers: (): Promise<TimerInfo[]> => N.getTimers(),
+  setHealthConfig: (json: string) => N.setHealthConfig(json),
+  getHealthSnapshot: (): Promise<string> => N.getHealthSnapshot(),
+  syncSteps: (): Promise<boolean> => N.syncSteps(),
+  clearHealthData: (): Promise<boolean> => N.clearHealthData(),
+  waterAction: (a: 'done' | 'snooze' | 'dismiss' | 'test') => N.waterAction(a),
   getMedia: (): Promise<Media> => N.getMedia(),
   mediaControl: (a: 'play' | 'pause' | 'next' | 'prev') => N.mediaControl(a),
   getInstalledApps: (): Promise<AppInfo[]> => N.getInstalledApps(),

@@ -25,9 +25,10 @@ const Chips = ({ items, value, onPick }: { items: { k: string; l: string }[]; va
 /** Miniature phone: drag the pill to place the real island. fx/fy are 0..1 fractions of the allowed range. */
 function PositionEditor({ cfg, update }: { cfg: Config; update: (p: Partial<Config>) => void }) {
   const PW = 180, PH = 380, scale = PW / SCREEN_DP;
-  const top = cfg.posArea === 'usable' ? 24 * scale * 2 : 0;
-  const bottom = cfg.posArea === 'usable' ? 14 : 0;
   const pw = Math.min(PW - 8, cfg.w * scale), ph = Math.max(8, cfg.h * scale);
+  const band = 26;   // status-bar band in preview pixels
+  const top = cfg.posArea === 'usable' ? band : cfg.posArea === 'statusbar' ? Math.max(0, (band - ph) / 2) : 0;
+  const bottom = cfg.posArea === 'screen' ? 0 : 14;
   const latest = useRef({ cfg, update, top, bottom, pw, ph });
   latest.current = { cfg, update, top, bottom, pw, ph };
   const base = useRef({ x: 0, y: 0 });
@@ -51,7 +52,7 @@ function PositionEditor({ cfg, update }: { cfg: Config; update: (p: Partial<Conf
   return (
     <View style={{ alignItems: 'center', marginVertical: 8 }}>
       <View {...pan.panHandlers} accessibilityLabel="Drag to position the island" style={{ width: PW, height: PH, borderRadius: 26, borderWidth: 2, borderColor: C.line, backgroundColor: '#0A0812', overflow: 'hidden' }}>
-        {top > 0 && <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: top, backgroundColor: 'rgba(183,156,255,0.08)' }} />}
+        {cfg.posArea !== 'screen' && <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: band, backgroundColor: 'rgba(183,156,255,0.08)' }} />}
         {bottom > 0 && <View pointerEvents="none" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: bottom, backgroundColor: 'rgba(183,156,255,0.08)' }} />}
         <View pointerEvents="none" style={{ position: 'absolute', left, top: topPx, width: pw, height: ph, borderRadius: cfg.r * scale, backgroundColor: cfg.bg, borderWidth: 1, borderColor: C.accent }} />
         <Text pointerEvents="none" style={{ position: 'absolute', bottom: 28, alignSelf: 'center', color: C.sub, fontSize: 11 }}>drag the pill</Text>
@@ -76,16 +77,16 @@ export default function Settings() {
     <View>
       <Card>
         <H>Island position</H>
-        <Sub>Drag the pill on the phone below, tap a preset, or fine-tune with the steppers. The real island moves live while it is running. You can also drag the island itself on your screen.</Sub>
+        <Sub>Drag the pill on the phone below, tap a preset, or fine-tune with the steppers. The real island follows live while it is running. The island itself can only be moved here, so it never shifts when you touch your phone.</Sub>
         <PositionEditor cfg={cfg} update={update} />
         <Chips value="" onPick={(k) => { const m: Record<string, [number, number]> = { tl: [0, 0], t: [0.5, 0], tr: [1, 0], c: [0.5, 0.5], b: [0.5, 1] }; update({ fx: m[k][0], fy: m[k][1] }); }}
           items={[{ k: 'tl', l: 'Top left' }, { k: 't', l: 'Top' }, { k: 'tr', l: 'Top right' }, { k: 'c', l: 'Center' }, { k: 'b', l: 'Bottom' }]} />
         <Stepper label="Horizontal (X)" value={pct(cfg.fx)} min={0} max={100} step={5} unit=" %" onChange={(v) => update({ fx: v / 100 })} />
         <Stepper label="Vertical (Y)" value={pct(cfg.fy)} min={0} max={100} step={5} unit=" %" onChange={(v) => update({ fy: v / 100 })} />
         <Text style={{ color: C.text, marginTop: 8 }}>Position relative to</Text>
-        <Chips value={cfg.posArea} onPick={(k) => update({ posArea: k as Config['posArea'] })} items={[{ k: 'usable', l: 'Usable area' }, { k: 'screen', l: 'Full screen' }]} />
-        <Sub>{cfg.posArea === 'usable' ? 'Stays below the status bar / camera cutout and above the navigation bar (safe default).' : 'Uses the whole physical screen, so the pill can sit over the status bar or camera.'}</Sub>
-        <View style={{ marginTop: 10 }}><Btn kind="ghost" title="Reset position" onPress={() => update({ fx: 0.5, fy: 0, posArea: 'usable' })} /></View>
+        <Chips value={cfg.posArea} onPick={(k) => update({ posArea: k as Config['posArea'] })} items={[{ k: 'statusbar', l: 'Status bar' }, { k: 'usable', l: 'Below bars' }, { k: 'screen', l: 'Full screen' }]} />
+        <Sub>{cfg.posArea === 'statusbar' ? 'Centred in the status-bar band (camera area), the closest an ordinary app can get. Android draws the clock and icons above app overlays, so the island sits in the free space between them.' : cfg.posArea === 'usable' ? 'Always below the status bar / camera cutout and above the navigation bar.' : 'Uses the whole physical screen from the very top edge. Status-bar icons will still draw over the pill.'}</Sub>
+        <View style={{ marginTop: 10 }}><Btn kind="ghost" title="Reset position" onPress={() => update({ fx: 0.5, fy: 0, posArea: 'statusbar' })} /></View>
       </Card>
 
       <Card>
@@ -98,12 +99,11 @@ export default function Settings() {
         <Swatches label="Background" list={BG} value={cfg.bg} onPick={(c) => update({ bg: c })} />
         <Swatches label="Text" list={FG} value={cfg.fg} onPick={(c) => update({ fg: c })} />
         <Toggle label="Cat ears" hint="Two tiny ears on top of the pill." value={cfg.ears} onChange={(v) => update({ ears: v })} />
-        <Sub>Animations also follow Android’s “Remove animations” setting.</Sub>
+        <Sub>Animations also follow Android’s “Remove animations” setting. Swipe down/up on the island to expand/collapse it, sideways to dismiss.</Sub>
       </Card>
 
       <Card>
         <H>Behaviour</H>
-        <Toggle label="Drag to reposition" hint="Drag the island on screen to move it. When off, swipe down/up expands/collapses and sideways dismisses." value={cfg.dragEnabled} onChange={(v) => update({ dragEnabled: v })} />
         <Toggle label="Hide island during full-screen video" hint="Best effort. Needs Usage Access; works when a playing video app is in landscape or (YouTube-type apps) hides the system bars." value={cfg.hideFullscreen} onChange={(v) => update({ hideFullscreen: v })} />
         <Toggle label="Music on island" hint="Real media session: title, artist, artwork and working controls." value={cfg.musicEnabled} onChange={(v) => update({ musicEnabled: v })} />
         <Toggle label="Notification previews" hint="Show other apps’ notifications on the island." value={cfg.notifEnabled} onChange={(v) => update({ notifEnabled: v })} />

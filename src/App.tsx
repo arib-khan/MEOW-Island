@@ -6,10 +6,12 @@ import { available, nativeCurrent, native } from './native';
 import { initDb } from './core/db';
 import { setupReminderActions, snooze } from './core/reminders';
 import { ConfigProvider } from './config';
+import { HealthProvider } from './health';
 import { C, CatLogo, ErrorBox, H, Loading, Sub, useReduceMotion } from './ui';
 import Home from './screens/Home';
 import Reminders from './screens/Reminders';
 import ScreenTime from './screens/ScreenTime';
+import Health from './screens/Health';
 import Settings from './screens/Settings';
 
 class Boundary extends React.Component<{ children: React.ReactNode }, { err?: Error }> {
@@ -22,7 +24,7 @@ class Boundary extends React.Component<{ children: React.ReactNode }, { err?: Er
   }
 }
 
-const TABS = [{ k: 'Home', i: '🐾' }, { k: 'Reminders', i: '⏰' }, { k: 'Screen Time', i: '⏳' }, { k: 'Settings', i: '⚙️' }];
+const TABS = [{ k: 'Home', i: '🐾' }, { k: 'Reminders', i: '⏰' }, { k: 'Screen Time', i: '⏳' }, { k: 'Health', i: '🚶' }, { k: 'Settings', i: '⚙️' }];
 
 function Shell() {
   const [tab, setTab] = useState(0);
@@ -50,7 +52,8 @@ function Shell() {
           {tab === 0 && <Home go={go} />}
           {tab === 1 && <Reminders />}
           {tab === 2 && <ScreenTime />}
-          {tab === 3 && <Settings />}
+          {tab === 3 && <Health />}
+          {tab === 4 && <Settings />}
         </ScrollView>
       </Animated.View>
       <View style={{ flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: 8 }}>
@@ -81,7 +84,7 @@ function Root() {
   }, []);
   if (err) return <ScrollView style={{ flex: 1, backgroundColor: C.bg, padding: 20, paddingTop: 60 }}><H>Startup failed</H><ErrorBox text={err} /></ScrollView>;
   if (!ready) return <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center' }}><Loading label="Starting…" /></View>;
-  return <ConfigProvider><Shell /></ConfigProvider>;
+  return <ConfigProvider><HealthProvider><Shell /></HealthProvider></ConfigProvider>;
 }
 
 export default function App() {

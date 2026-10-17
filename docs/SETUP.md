@@ -78,7 +78,7 @@ Denying a permission only disables the feature that needs it. Revoking one later
 - Android 14+: Settings > Apps > Special access > *Alarms & reminders* > allow Meow Island (exact reminders).
 - Reboot restart is NOT implemented yet; open the app and tap Start island after a reboot.
 
-## 6. Testing checklist (tests A-G)
+## 6. Testing checklist (tests A-G; health checks are in docs/HEALTH.md)
 Overlay: Start island, press Home, open another app: pill stays; Stop removes it. Permissions: each Grant button opens the right page; status flips after returning. Music: play in a media app; title/art/CD; pause stops rotation. Screen time: Add app (picker, search), set 1 min, use the app >1 min: 😡; leave: 😊 once. Notifications: grant Notification access, send yourself a notification. Reminders: schedule +2 min, background the app; it fires and shows on the island. Persistence: force-close and reopen; settings, limits and reminders remain.
 - [ ] Pill appears at top after Start island, over other apps
 - [ ] Play music (Spotify/YouTube Music): title, artist, art show; art spins; pausing stops spin

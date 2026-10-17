@@ -33,6 +33,7 @@ import android.util.DisplayMetrics
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.RoundedCorner
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewOutlineProvider
@@ -45,7 +46,6 @@ import androidx.core.app.NotificationCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
-import kotlin.math.hypot
 
 /** Round vinyl/CD view: circular artwork, grooves, label ring and centre hole. */
 class CDView(ctx: Context) : View(ctx) {
@@ -94,11 +94,40 @@ class BarView(ctx: Context) : View(ctx) {
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
     var fill: Int = Color.WHITE
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var anim: ValueAnimator? = null
+
+    /** Smooth progress changes (follows the system animator scale, so "remove animations" is respected). */
+    fun animateTo(f: Float) {
+        anim?.cancel()
+        val a = ValueAnimator.ofFloat(frac, f.coerceIn(0f, 1f))
+        a.duration = 250L
+        a.addUpdateListener { frac = it.animatedValue as Float }
+        anim = a
+        a.start()
+    }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat(); val r = h / 2f
         p.color = 0x33FFFFFF; c.drawRoundRect(0f, 0f, w, h, r, r, p)
         p.color = fill; c.drawRoundRect(0f, 0f, w * frac, h, r, r, p)
+    }
+}
+
+/** Tiny contribution preview: one square per day, brighter purple = goal reached. */
+class HeatView(ctx: Context) : View(ctx) {
+    var levels: IntArray = IntArray(0)
+        set(v) { field = v; invalidate() }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onDraw(c: Canvas) {
+        val s = height.toFloat(); val gap = s * 0.3f
+        for (i in levels.indices) {
+            p.color = when (levels[i]) {
+                4 -> 0xFFB79CFF.toInt(); 3 -> 0xFF6C55B0.toInt(); 2 -> 0xFF3A2F5C.toInt(); 1 -> 0xFF2A2238.toInt(); else -> 0x22FFFFFF
+            }
+            val l = i * (s + gap)
+            c.drawRoundRect(l, 0f, l + s, s, s * 0.25f, s * 0.25f, p)
+        }
     }
 }
 
@@ -209,7 +238,7 @@ class IslandService : Service() {
             "in.startv.hotstar", "com.disney.disneyplus", "tv.twitch.android.app", "org.videolan.vlc", "com.mxtech.videoplayer.ad")
     }
 
-    private class Geo(val w: Int, val h: Int, val top: Int, val bottom: Int)
+    private class Geo(val w: Int, val h: Int, val band: Int, val bottom: Int, val mode: String)
 
     private val main = Handler(Looper.getMainLooper())
     private val guardian = Guardian()
@@ -225,7 +254,10 @@ class IslandService : Service() {
     private lateinit var tT: TextView
     private lateinit var tS: TextView
     private lateinit var bar: BarView
+    private lateinit var wBar: BarView
+    private lateinit var heatV: HeatView
     private lateinit var ctl: LinearLayout
+    private lateinit var actRow: LinearLayout
     private lateinit var cPrev: CtlView
     private lateinit var cPlay: CtlView
     private lateinit var cNext: CtlView
@@ -235,12 +267,11 @@ class IslandService : Service() {
     private var expanded = false
     private var autoCollapseAt = 0L
     private var shownSig = "?"
+    private var geoSig = ""
     private var lastId = ""
     private var lastPulse = 0L
     private var hidden = false
     private var fsCount = 0
-    private var dragging = false
-    private var dragOn = true
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -310,10 +341,25 @@ class IslandService : Service() {
         return outer?.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
     }
 
+    private fun cornerInset(): Int {
+        if (Build.VERSION.SDK_INT < 31) return 0
+        val ins = outer?.rootWindowInsets ?: return 0
+        val a = ins.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0
+        val b = ins.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)?.radius ?: 0
+        return maxOf(a, b)
+    }
+
     private fun earsH(): Int = if (::ears.isInitialized && ears.visibility == View.VISIBLE) dp(6) else 0
     private fun baseH(c: JSONObject): Int = dp(c.optInt("h", 34)) + earsH()
 
-    /** Real screen size plus top/bottom keep-out bands (status bar, cutout, navigation bar) for the "usable area" mode. */
+    /**
+     * Real screen size, the status-bar/cutout band and the navigation keep-out band.
+     * NOTE: TYPE_APPLICATION_OVERLAY windows sit BELOW the status-bar window in Android's layer order, so the system's clock
+     * and icons always draw over an overlay. That is the root cause of "the island is hidden by the top bar": it was placed on top of
+     * the icons. The default mode therefore centres the pill vertically inside the status-bar band (where the cutout/middle is
+     * normally free) instead of overlapping the icons. Only privileged overlay types or an accessibility overlay can cover the icons,
+     * and this app intentionally uses neither.
+     */
     @Suppress("DEPRECATION")
     private fun geo(c: JSONObject): Geo {
         var sw = resources.displayMetrics.widthPixels
@@ -323,48 +369,40 @@ class IslandService : Service() {
             if (Build.VERSION.SDK_INT >= 30) { val b = w.currentWindowMetrics.bounds; sw = b.width(); sh = b.height() }
             else { val dm = DisplayMetrics(); w.defaultDisplay.getRealMetrics(dm); sw = dm.widthPixels; sh = dm.heightPixels }
         }
-        if (c.optString("posArea", "usable") == "screen") return Geo(sw, sh, 0, 0)
-        val top = maxOf(statusBarH(), cutoutTop())
-        val mode = try { Settings.Secure.getInt(contentResolver, "navigation_mode", 0) } catch (e: Exception) { 0 }
-        val nav = if (mode == 2) dp(16) else navBarH()   // 2 = gesture navigation: only a small safety band
-        return Geo(sw, sh, top, nav)
+        val mode = c.optString("posArea", "statusbar")
+        val band = maxOf(statusBarH(), cutoutTop())
+        if (mode == "screen") return Geo(sw, sh, band, 0, mode)
+        val nav = try { Settings.Secure.getInt(contentResolver, "navigation_mode", 0) } catch (e: Exception) { 0 }
+        return Geo(sw, sh, band, if (nav == 2) dp(16) else navBarH(), mode)   // 2 = gesture navigation: small safety band only
     }
 
     /** fx/fy are fractions (0..1) of the allowed range, so the position survives rotation and size changes. */
     private fun place(tw: Int, th: Int, c: JSONObject): IntArray {
         val g = geo(c)
-        val margin = dp(8)
+        val margin = maxOf(dp(8), cornerInset() / 2)
         val fx = c.optDouble("fx", 0.5).coerceIn(0.0, 1.0)
         val fy = c.optDouble("fy", 0.0).coerceIn(0.0, 1.0)
         val cx = margin + fx * (g.w - 2 * margin)
         val x = (cx - tw / 2.0).toInt().coerceIn(0, maxOf(0, g.w - tw))
-        val usable = maxOf(0, g.h - g.top - g.bottom - baseH(c))
-        val y = (g.top + fy * usable).toInt().coerceIn(g.top, maxOf(g.top, g.h - g.bottom - th))
+        val bh = baseH(c)
+        val topLimit = when (g.mode) { "screen" -> 0; "usable" -> g.band; else -> maxOf(0, (g.band - bh) / 2) }
+        val bottomLimit = g.h - g.bottom
+        val usable = maxOf(0, bottomLimit - topLimit - bh)
+        val y = (topLimit + fy * usable).toInt().coerceIn(topLimit, maxOf(topLimit, bottomLimit - th))
         return intArrayOf(x, y)
     }
 
-    private fun moveTo(x: Int, y: Int) {
-        val l = lp ?: return; val o = outer ?: return; val w = wm ?: return
-        val g = geo(Cfg.read(this))
-        l.x = x.coerceIn(0, maxOf(0, g.w - l.width))
-        l.y = y.coerceIn(g.top, maxOf(g.top, g.h - g.bottom - l.height))
-        try { w.updateViewLayout(o, l) } catch (e: Exception) { }
-    }
-
-    private fun savePosition() {
-        val l = lp ?: return
-        val c = Cfg.read(this); val g = geo(c)
-        val margin = dp(8)
-        val span = maxOf(1, g.w - 2 * margin)
-        val fx = ((l.x + l.width / 2.0 - margin) / span).coerceIn(0.0, 1.0)
-        val usable = maxOf(1, g.h - g.top - g.bottom - baseH(c))
-        val fy = ((l.y - g.top).toDouble() / usable).coerceIn(0.0, 1.0)
-        c.put("fx", fx); c.put("fy", fy)
-        Cfg.write(this, c.toString())
-        IslandModule.emit("position", mapOf("fx" to fx, "fy" to fy))
-    }
-
     // ---------- view ----------
+    private fun actButton(label: String, onClick: () -> Unit): TextView {
+        val b = TextView(this)
+        b.text = label; b.textSize = 12f; b.setTextColor(0xFF1A1128.toInt()); b.setPadding(dp(12), dp(6), dp(12), dp(6)); b.gravity = Gravity.CENTER
+        val bg = GradientDrawable(); bg.setColor(0xFFB79CFF.toInt()); bg.cornerRadius = dp(14).toFloat(); b.background = bg
+        val p = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); p.leftMargin = dp(3); p.rightMargin = dp(3)
+        b.layoutParams = p
+        b.setOnClickListener { onClick() }
+        return b
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun buildView() {
         val c = Cfg.read(this)
@@ -385,6 +423,12 @@ class IslandService : Service() {
         bar = BarView(this)
         bar.layoutParams = LinearLayout.LayoutParams(dp(200), dp(4)).also { it.topMargin = dp(8) }
         bar.visibility = View.GONE
+        wBar = BarView(this); wBar.fill = 0xFFB79CFF.toInt()
+        wBar.layoutParams = LinearLayout.LayoutParams(dp(64), dp(5)).also { it.leftMargin = dp(6) }
+        wBar.visibility = View.GONE
+        heatV = HeatView(this)
+        heatV.layoutParams = LinearLayout.LayoutParams(dp(7 * 8 + 6 * 3), dp(8)).also { it.topMargin = dp(8) }
+        heatV.visibility = View.GONE
         ctl = LinearLayout(this); ctl.orientation = LinearLayout.HORIZONTAL; ctl.gravity = Gravity.CENTER
         ctl.layoutParams = LinearLayout.LayoutParams(dp(200), LinearLayout.LayoutParams.WRAP_CONTENT)
         ctl.visibility = View.GONE
@@ -396,8 +440,14 @@ class IslandService : Service() {
             val t = MediaListener.controller?.transportControls
             if (curAct?.playing == true) t?.pause() else t?.play()
         }
-        col.addView(tT); col.addView(tS); col.addView(bar); col.addView(ctl)
-        pill.addView(cd); pill.addView(ico); pill.addView(emo); pill.addView(col)
+        actRow = LinearLayout(this); actRow.orientation = LinearLayout.HORIZONTAL; actRow.gravity = Gravity.CENTER
+        actRow.layoutParams = LinearLayout.LayoutParams(dp(220), LinearLayout.LayoutParams.WRAP_CONTENT).also { it.topMargin = dp(8) }
+        actRow.visibility = View.GONE
+        actRow.addView(actButton("Done") { Water.done(this) })
+        actRow.addView(actButton("Snooze") { Water.snooze(this) })
+        actRow.addView(actButton("Dismiss") { Water.dismiss(this) })
+        col.addView(tT); col.addView(tS); col.addView(bar); col.addView(ctl); col.addView(heatV); col.addView(actRow)
+        pill.addView(cd); pill.addView(ico); pill.addView(emo); pill.addView(col); pill.addView(wBar)
         o.addView(ears); o.addView(pill)
         outer = o
         applyStyle()
@@ -414,33 +464,19 @@ class IslandService : Service() {
         lp = l
         val p0 = place(l.width, l.height, c); l.x = p0[0]; l.y = p0[1]
 
+        // The island can never be dragged around the phone: its position is changed ONLY in the app's settings.
+        // Gestures: tap = expand/collapse, swipe down/up = expand/collapse, swipe sideways = dismiss the current item.
         val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onSingleTapUp(e: MotionEvent): Boolean { setExpanded(!expanded, 0L); return true }
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (abs(vy) > abs(vx)) setExpanded(vy > 0, 0L)        // swipe down = expand, up = collapse
-                else IslandBus.top()?.let { IslandBus.remove(it.id) } // swipe sideways = dismiss
+                if (abs(vy) > abs(vx)) setExpanded(vy > 0, 0L)
+                else IslandBus.top()?.let { IslandBus.remove(it.id) }
                 return true
             }
         })
-        val slop = ViewConfiguration.get(this).scaledTouchSlop * 2
-        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
-        // Only events NOT consumed by the media buttons reach this listener, so buttons never start a drag.
-        o.setOnTouchListener { _, ev ->
-            var handled = false
-            val cur = lp
-            if (cur != null) {
-                when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> { downX = ev.rawX; downY = ev.rawY; startX = cur.x; startY = cur.y; dragging = false }
-                    MotionEvent.ACTION_MOVE -> if (dragOn && (dragging || hypot(ev.rawX - downX, ev.rawY - downY) > slop)) {
-                        dragging = true; sizeAnim?.cancel()
-                        moveTo(startX + (ev.rawX - downX).toInt(), startY + (ev.rawY - downY).toInt()); handled = true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (dragging) { dragging = false; savePosition(); handled = true }
-                }
-            }
-            if (handled) true else gd.onTouchEvent(ev)
-        }
+        // Only events NOT consumed by the buttons reach this listener.
+        o.setOnTouchListener { _, ev -> gd.onTouchEvent(ev) }
         wm!!.addView(o, l)
         render(true)
     }
@@ -460,7 +496,6 @@ class IslandService : Service() {
         for (v in arrayOf(cPrev, cPlay, cNext)) v.tint = fg
         ears.color = bgc
         ears.visibility = if (c.optBoolean("ears", true)) View.VISIBLE else View.GONE
-        dragOn = c.optBoolean("dragEnabled", true)
     }
 
     private fun setSpin(on: Boolean) {
@@ -472,6 +507,13 @@ class IslandService : Service() {
         else if (s.isRunning) s.pause()
     }
 
+    private fun celebrate() {
+        val a = ObjectAnimator.ofFloat(emo, View.TRANSLATION_Y, 0f, -dp(8).toFloat())
+        a.duration = 170L; a.repeatCount = 5; a.repeatMode = ValueAnimator.REVERSE
+        a.start()
+        for (prop in arrayOf(View.SCALE_X, View.SCALE_Y)) { val s = ObjectAnimator.ofFloat(emo, prop, 1f, 1.35f, 1f); s.duration = 600L; s.start() }
+    }
+
     private fun updateSubVisibility() {
         val a = curAct
         val music = a?.id == "music"
@@ -479,6 +521,8 @@ class IslandService : Service() {
         tS.visibility = if (expanded && tS.text.isNotEmpty()) View.VISIBLE else View.GONE
         bar.visibility = if (big && (a?.durMs ?: 0L) > 0L) View.VISIBLE else View.GONE
         ctl.visibility = if (big) View.VISIBLE else View.GONE
+        heatV.visibility = if (expanded && a?.heat != null) View.VISIBLE else View.GONE
+        actRow.visibility = if (expanded && a?.water == true) View.VISIBLE else View.GONE
         col.visibility = if (tT.visibility == View.VISIBLE || tS.visibility == View.VISIBLE) View.VISIBLE else View.GONE
         val mw = dp(if (big) 200 else if (expanded) 260 else 150)
         tT.maxWidth = mw; tS.maxWidth = mw
@@ -490,7 +534,7 @@ class IslandService : Service() {
     private fun bind(a: Act?) {
         curAct = a
         if (a == null) {
-            cd.visibility = View.GONE; ico.visibility = View.GONE; emo.visibility = View.GONE
+            cd.visibility = View.GONE; ico.visibility = View.GONE; emo.visibility = View.GONE; wBar.visibility = View.GONE
             tT.text = ""; tT.visibility = View.GONE; tS.text = ""; setSpin(false)
             updateSubVisibility(); return
         }
@@ -505,6 +549,12 @@ class IslandService : Service() {
         if (a.icon != null) ico.setImageBitmap(a.icon)
         emo.visibility = if (a.emoji.isNotEmpty()) View.VISIBLE else View.GONE
         emo.text = a.emoji
+        if (a.prog >= 0f) {
+            val was = wBar.visibility == View.VISIBLE
+            wBar.visibility = View.VISIBLE
+            if (was) wBar.animateTo(a.prog) else wBar.frac = a.prog
+        } else wBar.visibility = View.GONE
+        heatV.levels = a.heat ?: IntArray(0)
         tT.text = a.title; tT.visibility = if (a.title.isEmpty()) View.GONE else View.VISIBLE
         tS.text = a.sub
         updateSubVisibility()
@@ -514,7 +564,7 @@ class IslandService : Service() {
         if (outer == null) return
         val a = IslandBus.top()
         val sig = if (a == null) "idle" else a.id + "|" + a.title + "|" + a.sub + "|" + a.spinning + "|" + a.emoji + "|" +
-            (a.art != null) + "|" + a.playing + "|" + a.canPrev + "|" + a.canNext + "|" + a.pulse
+            (a.art != null) + "|" + a.playing + "|" + a.canPrev + "|" + a.canNext + "|" + a.pulse + "|" + (a.prog * 100).toInt() + "|" + a.water + "|" + (a.heat?.contentHashCode() ?: 0)
         if (sig == shownSig && !force) return
         shownSig = sig
         bind(a)
@@ -522,7 +572,10 @@ class IslandService : Service() {
         val pulse = a?.pulse ?: 0L
         if (a == null) { expanded = false; autoCollapseAt = 0L }
         else if ((id != lastId || pulse != lastPulse) && a.expand) {
-            expanded = true; autoCollapseAt = System.currentTimeMillis() + Cfg.read(this).optInt("expandMs", 5000)
+            expanded = true
+            // water reminders stay open until the user acts; everything else collapses after the configured time
+            autoCollapseAt = if (a.water) 0L else System.currentTimeMillis() + Cfg.read(this).optInt("expandMs", 5000)
+            if (a.celebrate) celebrate()
         } else if (id != lastId) { expanded = false; autoCollapseAt = 0L }
         lastId = id; lastPulse = pulse
         updateSubVisibility()
@@ -541,7 +594,6 @@ class IslandService : Service() {
     /** Measures the pill, then animates size AND position so the island stays anchored and on screen. */
     private fun layoutPill(animate: Boolean) {
         val o = outer ?: return; val l = lp ?: return; val w = wm ?: return
-        if (dragging) return
         val c = Cfg.read(this)
         val g = geo(c)
         val minW = dp(c.optInt("w", 120)); val minH = dp(c.optInt("h", 34))
@@ -553,8 +605,10 @@ class IslandService : Service() {
         val fw = l.width; val fh = l.height; val fx = l.x; val fy = l.y
         sizeAnim?.cancel()
         if (!animate || (fw == tw && fh == th && fx == to[0] && fy == to[1])) {
-            l.width = tw; l.height = th; l.x = to[0]; l.y = to[1]
-            try { w.updateViewLayout(o, l) } catch (e: Exception) { }
+            if (fw != tw || fh != th || fx != to[0] || fy != to[1]) {
+                l.width = tw; l.height = th; l.x = to[0]; l.y = to[1]
+                try { w.updateViewLayout(o, l) } catch (e: Exception) { }
+            }
             return
         }
         val va = ValueAnimator.ofFloat(0f, 1f)
@@ -574,6 +628,13 @@ class IslandService : Service() {
         if (a.id != "music" || a.durMs <= 0L || !expanded) return
         val pos = a.posMs + (if (a.playing) System.currentTimeMillis() - a.posAt else 0L)
         bar.frac = pos.toFloat() / a.durMs.toFloat()
+    }
+
+    /** Re-place after rotation, resolution/density change, navigation-mode or cutout change (cheap signature compare). */
+    private fun checkGeometry(c: JSONObject) {
+        val g = geo(c)
+        val sig = g.w.toString() + "x" + g.h + "/" + g.band + "/" + g.bottom + "/" + g.mode + "/" + cornerInset()
+        if (sig != geoSig) { geoSig = sig; layoutPill(false) }
     }
 
     // ---------- full-screen video hiding ----------
@@ -656,13 +717,20 @@ class IslandService : Service() {
         override fun run() {
             var interactive = true
             try {
+                if (!Settings.canDrawOverlays(this@IslandService)) {      // permission revoked while running
+                    fail("Overlay permission was revoked. Open Meow Island and grant it again.")
+                    return
+                }
                 interactive = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+                HealthEngine.ensureLive(this@IslandService, interactive)   // step sensor only while the screen is on
                 if (interactive) {                       // no polling while the screen is off: saves battery
                     val c = Cfg.read(this@IslandService)
                     Fg.update(this@IslandService)
                     guardian.tick(this@IslandService, c)
                     timersTick()
+                    HealthEngine.refreshIsland(this@IslandService)
                     checkFullscreen(c)
+                    checkGeometry(c)
                     if (autoCollapseAt > 0L && System.currentTimeMillis() > autoCollapseAt) setExpanded(false, 0L)
                     render(false)
                     updateProgress()
@@ -675,6 +743,7 @@ class IslandService : Service() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         sizeAnim?.cancel(); spin?.cancel()
+        try { HealthEngine.stopLive(this) } catch (e: Exception) { }
         try { outer?.let { wm?.removeView(it) } } catch (e: Exception) { }
         val was = inst === this
         outer = null
