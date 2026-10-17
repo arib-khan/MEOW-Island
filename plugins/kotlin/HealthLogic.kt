@@ -155,3 +155,24 @@ object WaterSchedule {
         return null
     }
 }
+
+/** Contribution grid shared by the home-screen widget: columns = weeks (oldest first), rows = Monday..Sunday. */
+object HeatGrid {
+    /** -1 = a day that has not happened yet; 0..4 = DayRec.level (0 = no data, never filled in). */
+    fun build(days: Map<String, DayRec>, now: Long, tz: TimeZone, weeks: Int): Array<IntArray> {
+        val today = Calendar.getInstance(tz)
+        today.timeInMillis = now
+        val idx = WaterSchedule.dayIdx(today)
+        return Array(weeks) { w ->
+            IntArray(7) { r ->
+                val back = (weeks - 1 - w) * 7 + (idx - r)
+                if (back < 0) -1 else {
+                    val c = Calendar.getInstance(tz)
+                    c.timeInMillis = now
+                    c.add(Calendar.DAY_OF_YEAR, -back)     // calendar arithmetic, so DST cannot skip or repeat a day
+                    days[StepLedger.dayKey(c.timeInMillis, tz)]?.level() ?: 0
+                }
+            }
+        }
+    }
+}

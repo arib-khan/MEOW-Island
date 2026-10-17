@@ -2,6 +2,8 @@ package com.smartisland.app
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -38,7 +40,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     override fun getName() = "IslandModule"
 
     /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
-    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 4)
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 5)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -97,6 +99,16 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
         IslandBus.post(Act(id, priority, title, sub, expireAt = if (ttlMs > 0) System.currentTimeMillis() + ttlMs.toLong() else 0L, expand = true, pulse = System.currentTimeMillis()))
     }
     @ReactMethod fun removeActivity(id: String) { IslandBus.remove(id) }
+
+    /** Asks the launcher to pin a widget (Android 8+). Returns false when the launcher cannot, so the UI can explain the manual way. */
+    @ReactMethod fun pinWidget(kind: String, p: Promise) {
+        try {
+            val cls: Class<*> = when (kind) { "clock" -> MeowClockWidget::class.java; "round" -> MeowRoundClockWidget::class.java; else -> MeowHeatWidget::class.java }
+            val m = AppWidgetManager.getInstance(ctx)
+            if (Build.VERSION.SDK_INT >= 26 && m.isRequestPinAppWidgetSupported) { m.requestPinAppWidget(ComponentName(ctx, cls), null, null); p.resolve(true) }
+            else p.resolve(false)
+        } catch (e: Exception) { p.reject("WIDGET_ERROR", e.message ?: "Could not pin widget", e) }
+    }
 
     // ---- optional Health & Wellness (all local, all opt-in) ----
     @ReactMethod fun setHealthConfig(json: String) {

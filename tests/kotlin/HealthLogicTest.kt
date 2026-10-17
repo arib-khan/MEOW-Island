@@ -89,5 +89,25 @@ fun main() {
     var cur = t(ny, 2026, 3, 8, 0, 0); var count = 0
     while (count < 6) { val x = WaterSchedule.next(cur, dst, ny)!!; check(x > cur, "monotonic across DST"); cur = x; count++ }
 
+    widgetTests()
     println("ALL $passed CHECKS PASSED")
+}
+
+fun widgetTests() {
+    val tz = TimeZone.getTimeZone("Asia/Kolkata")
+    fun at(y: Int, mo: Int, d: Int): Long { val c = Calendar.getInstance(tz); c.clear(); c.set(y, mo - 1, d, 12, 0, 0); return c.timeInMillis }
+    val today = at(2026, 10, 16)   // Friday
+    val days = mutableMapOf("2026-10-16" to DayRec(8000, 8000, false, 0, 0), "2026-10-15" to DayRec(100, 8000, false, 0, 0))
+    val g = HeatGrid.build(days, today, tz, 5)
+    check(g.size == 5 && g.all { it.size == 7 }, "grid is weeks x 7")
+    check(g[4][4] == 4, "today (Friday, last column) shows goal reached")
+    check(g[4][3] == 2, "Thursday is a tracked miss")
+    check(g[4][5] == -1 && g[4][6] == -1, "Saturday/Sunday are future days")
+    check(g[0][0] == 0 && g[2][2] == 0, "untracked days are 0, never invented")
+    val ny = TimeZone.getTimeZone("America/New_York")
+    fun atNy(y: Int, mo: Int, d: Int): Long { val c = Calendar.getInstance(ny); c.clear(); c.set(y, mo - 1, d, 12, 0, 0); return c.timeInMillis }
+    val dstDays = mutableMapOf("2026-03-08" to DayRec(9000, 8000, false, 0, 0))
+    val gd = HeatGrid.build(dstDays, atNy(2026, 3, 9), ny, 3)   // Monday after spring-forward
+    check(gd[1][6] == 4, "DST Sunday (Mar 8) sits in the last row of the previous week column")
+    check(gd[2][0] == 0 && gd[2][1] == -1, "Monday Mar 9 is today (no data) and the rest of that week is future")
 }

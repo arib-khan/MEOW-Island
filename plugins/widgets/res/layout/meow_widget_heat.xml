@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/meow_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/meow_widget_bg" android:orientation="vertical" android:padding="12dp">
+    <TextView android:id="@+id/meow_title" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Step goals" android:textSize="11sp" android:textColor="#B79CFF" android:textStyle="bold"/>
+    <ImageView android:id="@+id/meow_grid" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:scaleType="fitCenter" android:contentDescription="Step goal history"/>
+    <TextView android:id="@+id/meow_msg" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:gravity="center" android:textSize="12sp" android:textColor="#A79DBA" android:visibility="gone"/>
+</LinearLayout>

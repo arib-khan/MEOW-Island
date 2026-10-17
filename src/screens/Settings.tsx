@@ -71,10 +71,27 @@ export default function Settings() {
       <Sub>{why}</Sub>{!ok && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title={label} onPress={action} /></View>}
     </View>
   );
+  const pin = async (kind: 'clock' | 'round' | 'heat') => {
+    try {
+      const ok = await native.pinWidget(kind);
+      if (!ok) Alert.alert('Add it from your home screen', 'Your launcher cannot add widgets from inside an app. Long-press an empty spot on the home screen, tap Widgets, find Meow Island and drag the one you want.');
+    } catch (e: any) { Alert.alert('Could not add the widget', String(e?.message ?? e)); }
+  };
   const confirmReset = () => Alert.alert('Reset appearance?', 'Size, colours, animation and emoji go back to defaults. Position, monitored apps and reminders are kept.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Reset', style: 'destructive', onPress: reset }]);
 
   return (
     <View>
+      <Card>
+        <H>Home screen widgets</H>
+        <Sub>Put Meow Island on your home screen. Your launcher will ask where to place it. You can also long-press the home screen, tap Widgets and pick Meow Island.</Sub>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          <Btn small title="Clock" onPress={() => pin('clock')} />
+          <Btn small title="Round clock" onPress={() => pin('round')} />
+          <Btn small title="Step heatmap" onPress={() => pin('heat')} />
+        </View>
+        <Sub>The clocks tick on their own. The heatmap shows your step-goal history in purple and stays empty until you turn on “Contribution heatmap” in Health. Adding a widget never starts any tracking. Date, battery and steps lines refresh about every 30 minutes (the heatmap more often while steps change).</Sub>
+      </Card>
+
       <Card>
         <H>Island position</H>
         <Sub>Drag the pill on the phone below, tap a preset, or fine-tune with the steppers. The real island follows live while it is running. The island itself can only be moved here, so it never shifts when you touch your phone.</Sub>

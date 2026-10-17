@@ -1,20 +1,20 @@
-MEOW ISLAND v3 - cumulative update. Unzip INTO your project folder (the one with package.json, e.g. C:\si).
-Run ONE command per line in PowerShell. The zip name is unique on purpose: if your browser saved it as 'meow-island-v3 (1).zip', use that name.
+MEOW ISLAND v4 (adds home-screen widgets). Apply on top of v3. Unzip INTO your project folder (e.g. C:\si).
+One command per line in PowerShell. If your browser saved it as 'meow-island-v4 (1).zip', use that name.
 
   cd C:\si
-  Expand-Archive -Path "$env:USERPROFILE\Downloads\meow-island-v3.zip" -DestinationPath C:\si -Force
+  Expand-Archive -Path "$env:USERPROFILE\Downloads\meow-island-v4.zip" -DestinationPath C:\si -Force
 
-CHECK that the new files really replaced the old ones - each line below MUST print one matching line (if one prints nothing, the old file is still there):
+CHECK (each must print one line; if one prints nothing the old file is still there):
 
-  Select-String -Path plugins\kotlin\IslandBus.kt -Pattern "val water: Boolean"
-  Select-String -Path plugins\kotlin\IslandService.kt -Pattern "wBar"
-  Select-String -Path plugins\kotlin\IslandModule.kt -Pattern "syncSteps"
-  Select-String -Path plugins\kotlin\HealthEngine.kt -Pattern "object HealthEngine"
+  Select-String -Path plugins\kotlin\MeowWidgets.kt -Pattern "object MeowWidgets"
+  Select-String -Path plugins\kotlin\IslandModule.kt -Pattern "pinWidget"
+  Select-String -Path plugins\withIsland.js -Pattern "MeowHeatWidget"
+  Get-ChildItem plugins\widgets\res -Recurse -File | Measure-Object | Select-Object Count      # expect 11
 
-Only then (prompt must say PS C:\si>, NOT ...\android>):
+Then (prompt must say PS C:\si>):
 
   npx expo prebuild --platform android --clean
   cd android
   .\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
 
-APK: C:\si\android\app\build\outputs\apk\release\app-release.apk
+After installing: long-press the home screen > Widgets > Meow Island, or use Settings > Home screen widgets.

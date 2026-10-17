@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/meow_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center_vertical|start" android:padding="10dp">
+    <TextClock android:id="@+id/meow_time" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:format12Hour="hh&#10;mm" android:format24Hour="HH&#10;mm" android:textSize="68sp" android:textColor="#FFFFFF"
+        android:fontFamily="sans-serif-medium" android:lineSpacingMultiplier="0.82" android:includeFontPadding="false"
+        android:shadowColor="#99000000" android:shadowDx="0" android:shadowDy="2" android:shadowRadius="6"/>
+    <TextClock android:id="@+id/meow_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:format12Hour="EEE, d MMM" android:format24Hour="EEE, d MMM" android:textSize="16sp" android:textColor="#F4F0FA"
+        android:layout_marginTop="6dp" android:shadowColor="#99000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="4"/>
+    <TextView android:id="@+id/meow_extra" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:textSize="13sp" android:textColor="#D9C9FF" android:visibility="gone" android:layout_marginTop="2dp"
+        android:shadowColor="#99000000" android:shadowDx="0" android:shadowDy="1" android:shadowRadius="4"/>
+</LinearLayout>

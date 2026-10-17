@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="140dp" android:minHeight="140dp" android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/meow_widget_round" android:previewImage="@drawable/meow_preview_round"
+    android:resizeMode="none" android:widgetCategory="home_screen"/>

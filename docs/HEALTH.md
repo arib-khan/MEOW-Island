@@ -36,6 +36,13 @@ Island-only reminders need the island running. This is a reminder on *your* sche
 * The island **cannot be dragged** on the phone any more; it moves only from Settings → Island position.
 * If overlay permission is revoked while running, the service stops cleanly and Home shows how to grant it again.
 
+## Home-screen widgets
+Three real Android app widgets (`AppWidgetProvider` + `RemoteViews`), added from the launcher's Widgets list or the Settings buttons (`requestPinAppWidget`, Android 8+ launchers that allow it):
+* **Meow Clock** (live stacked time + date, optional "N steps" line only if the step counter is on) and **Meow Round Clock** (round face, date, battery). Time and date tick by themselves; battery/steps lines refresh about every 30 minutes (Android's minimum widget refresh).
+* **Meow Step Heatmap**: the same purple contribution grid as the Health tab, drawn from the local step ledger and redrawn to the widget's size. It shows a prompt until "Contribution heatmap" is on. Adding a widget never enables tracking. Refreshes at most every ~10 min while steps change, at midnight sync, and when settings change; a ring marks today.
+* Tapping a widget opens the app. Widgets are not copies of other apps' widgets (the clock/GitHub widgets in your screenshot come from other apps); they show *local* data only and never contact GitHub.
+* Limits: a launcher may refuse programmatic pinning (use the manual way); some launchers crop or round widgets differently; the bitmap is capped at ~240k pixels, so very large widgets are upscaled.
+
 ## Tests
 * `npm test` — settings persistence/clamping, defaults off, day status/levels, heatmap grid across month/year/DST, formatting, config migration.
 * Kotlin JVM logic tests (no Android needed): `kotlinc plugins/kotlin/HealthLogic.kt tests/kotlin/HealthLogicTest.kt -include-runtime -d t.jar && java -jar t.jar` — step aggregation (no double count, reboot, midnight, DST, per-day goals), walking hysteresis, water schedule (intervals, quiet window across midnight, weekdays, pause, DST monotonicity).

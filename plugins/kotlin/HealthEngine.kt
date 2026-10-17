@@ -38,6 +38,7 @@ object HealthEngine {
     private var ledger: StepLedger? = null
     private var lastSave = 0L
     private var lastEmit = 0L
+    private var lastWidget = 0L
     private var live: SensorEventListener? = null
     private val walk = WalkDetector()
     private val fmt: NumberFormat = NumberFormat.getIntegerInstance()
@@ -87,7 +88,16 @@ object HealthEngine {
         }
         o.put("days", d)
         ctx.applicationContext.getSharedPreferences(PREF, 0).edit().putString("ledger", o.toString()).apply()
+        if (force || now - lastWidget > 600000L) {        // keep the home-screen heatmap fresh without redrawing on every step
+            lastWidget = now
+            try { MeowWidgets.updateAll(ctx.applicationContext) } catch (e: Exception) { }
+        }
     }
+
+    @Synchronized fun todaySteps(ctx: Context): Long? = load(ctx).today(System.currentTimeMillis(), TimeZone.getDefault())?.steps
+
+    @Synchronized fun gridLevels(ctx: Context, weeks: Int): Array<IntArray> =
+        HeatGrid.build(load(ctx).days, System.currentTimeMillis(), TimeZone.getDefault(), weeks)
 
     // ---------- readings ----------
     @Synchronized fun onSensor(ctx: Context, type: Int, value: Float) {
@@ -213,6 +223,7 @@ object HealthEngine {
             refreshIsland(ctx, c)
         }
         armSync(ctx)
+        try { MeowWidgets.updateAll(ctx.applicationContext) } catch (e: Exception) { }
     }
 
     @Synchronized fun clear(ctx: Context) {
@@ -220,6 +231,7 @@ object HealthEngine {
         ctx.applicationContext.getSharedPreferences(PREF, 0).edit().clear().apply()
         ctx.applicationContext.getSharedPreferences("health_water", 0).edit().clear().apply()
         IslandBus.remove("walk"); IslandBus.remove("goal")
+        try { MeowWidgets.updateAll(ctx.applicationContext) } catch (e: Exception) { }
     }
 
     @Synchronized fun snapshot(ctx: Context): String {

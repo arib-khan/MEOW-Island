@@ -18,6 +18,12 @@ module.exports = (config) => {
     m['uses-feature'] = m['uses-feature'] || [];
     m['uses-feature'].push({ $: { 'android:name': 'android.hardware.sensor.stepcounter', 'android:required': 'false' } });
     app.receiver = app.receiver || [];
+    const widget = (cls, label, xml) => ({ $: { 'android:name': '.' + cls, 'android:exported': 'true', 'android:label': label },
+      'intent-filter': [{ action: [{ $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } }] }],
+      'meta-data': [{ $: { 'android:name': 'android.appwidget.provider', 'android:resource': '@xml/' + xml } }] });
+    app.receiver.push(widget('MeowClockWidget', 'Meow Clock', 'meow_widget_clock_info'));
+    app.receiver.push(widget('MeowRoundClockWidget', 'Meow Round Clock', 'meow_widget_round_info'));
+    app.receiver.push(widget('MeowHeatWidget', 'Meow Step Heatmap', 'meow_widget_heat_info'));
     app.receiver.push({ $: { 'android:name': '.WaterReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.HealthReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });
@@ -28,6 +34,10 @@ module.exports = (config) => {
     const res = path.join(c.modRequest.platformProjectRoot, 'app/src/main/res');
     fs.mkdirSync(path.join(res, 'drawable'), { recursive: true });
     fs.mkdirSync(path.join(res, 'drawable-nodpi'), { recursive: true });
+    // Home-screen widget layouts, drawables, provider XML and picker previews (kept as real files in plugins/widgets/res).
+    const copyDir = (from, to) => { fs.mkdirSync(to, { recursive: true }); for (const e of fs.readdirSync(from, { withFileTypes: true })) { const a = path.join(from, e.name), b = path.join(to, e.name); if (e.isDirectory()) copyDir(a, b); else fs.copyFileSync(a, b); } };
+    const wres = path.join(c.modRequest.projectRoot, 'plugins/widgets/res');
+    if (fs.existsSync(wres)) copyDir(wres, res);
     const logo = path.join(c.modRequest.projectRoot, 'assets/splash-icon.png');
     if (fs.existsSync(logo)) fs.copyFileSync(logo, path.join(res, 'drawable-nodpi/meow_logo.png'));
     fs.writeFileSync(path.join(res, 'drawable/meow_splash.xml'),
