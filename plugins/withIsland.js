@@ -17,6 +17,10 @@ module.exports = (config) => {
     // Step sensor is optional hardware; do not hide the app from devices without it.
     m['uses-feature'] = m['uses-feature'] || [];
     m['uses-feature'].push({ $: { 'android:name': 'android.hardware.sensor.stepcounter', 'android:required': 'false' } });
+    // Optional, inert accessibility service: only hosts the topmost (accessibility-overlay) window layer.
+    app.service.push({ $: { 'android:name': '.MeowAccessibilityService', 'android:exported': 'true', 'android:label': 'Meow Island', 'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE' },
+      'intent-filter': [{ action: [{ $: { 'android:name': 'android.accessibilityservice.AccessibilityService' } }] }],
+      'meta-data': [{ $: { 'android:name': 'android.accessibilityservice', 'android:resource': '@xml/meow_accessibility_config' } }] });
     app.receiver = app.receiver || [];
     const widget = (cls, label, xml) => ({ $: { 'android:name': '.' + cls, 'android:exported': 'true', 'android:label': label },
       'intent-filter': [{ action: [{ $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } }] }],

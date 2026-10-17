@@ -70,6 +70,7 @@ function NowPlaying() {
 export default function Home({ go }: { go: (i: number) => void }) {
   const perms = usePerms();
   const { cfg } = useConfig();
+  const [layer, setLayer] = useState('none');
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -77,14 +78,16 @@ export default function Home({ go }: { go: (i: number) => void }) {
   const sync = useCallback(async () => { try { setRunning(await native.isRunning()); } catch { /* ignore */ } }, []);
   useEffect(() => {
     sync();
-    const sub = events.addListener('islandState', (e: { running: boolean; error: string }) => { setRunning(e.running); if (e.error) setError(e.error); });
+    native.getLayer().then(setLayer).catch(() => {});
+    const sub = events.addListener('islandState', (e: { running: boolean; error: string; layer?: string }) => { setRunning(e.running); if (e.layer) setLayer(e.layer); if (e.error) setError(e.error); });
     return () => sub.remove();
   }, [sync]);
   useEffect(() => { if (!perms.loading) sync(); }, [perms.overlay, perms.loading, sync]);
 
   const start = async () => {
     setError('');
-    if (!(await native.hasOverlay())) {
+    const topOk = cfg.layer === 'topmost' && (await native.hasAccessibility());
+    if (!topOk && !(await native.hasOverlay())) {
       Alert.alert('Permission needed', 'Meow Island draws a pill over other apps, which Android treats as a special permission.\n\nOn the next screen switch on "Allow display over other apps", then come back here.',
         [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: () => native.requestOverlay() }]);
       return;
@@ -103,6 +106,7 @@ export default function Home({ go }: { go: (i: number) => void }) {
 
   const setupItems = [
     { k: 'overlay', t: 'Display over other apps', ok: perms.overlay, act: () => native.requestOverlay() },
+    ...(cfg.layer === 'topmost' && !perms.a11y ? [{ k: 'a11y', t: 'Optional: enable the Meow Island accessibility layer so the island can sit above the status bar (see Settings → Overlay layer)', ok: false, act: () => native.requestAccessibility() }] : []),
     { k: 'listener', t: 'Notification access (music, notifications, reminders on the island)', ok: perms.listener, act: () => native.requestNotificationAccess() },
     { k: 'usage', t: 'Usage Access (screen time, full-screen hiding)', ok: perms.usage, act: () => native.requestUsageAccess() },
   ];
@@ -118,6 +122,7 @@ export default function Home({ go }: { go: (i: number) => void }) {
     <View>
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Island</H><Chip ok={running} label={running ? 'Running' : 'Stopped'} /></View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}><Sub>Layer</Sub>{layer === 'none' ? <Chip ok={false} label="Not running" /> : <Chip ok={layer === 'topmost'} label={layer === 'topmost' ? 'Topmost' : 'Standard'} />}</View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}><Sub>Overlay permission</Sub><Chip ok={perms.overlay} label={perms.overlay ? 'Granted' : 'Not granted'} /></View>
         {!!error && <ErrorBox text={error} />}
         {running ? <Btn title={busy ? 'Stopping…' : 'Stop island'} kind="danger" disabled={busy} onPress={stop} /> : <Btn title={busy ? 'Starting…' : 'Start island'} disabled={busy} onPress={start} />}

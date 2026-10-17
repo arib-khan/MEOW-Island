@@ -40,7 +40,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     override fun getName() = "IslandModule"
 
     /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
-    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 5)
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 6)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -72,8 +72,13 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     @ReactMethod fun openBatterySettings() { open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
 
     // ---- island lifecycle ----
+    @ReactMethod fun hasAccessibility(p: Promise) { p.resolve(MeowAccessibilityService.enabledInSettings(ctx)) }
+    @ReactMethod fun requestAccessibility() { open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+    @ReactMethod fun getLayer(p: Promise) { p.resolve(IslandService.inst?.layerName() ?: "none") }
+
     @ReactMethod fun startIsland(p: Promise) {
-        if (!Settings.canDrawOverlays(ctx)) { p.reject("NO_OVERLAY", "Overlay permission is not granted"); return }
+        val topOk = Cfg.read(ctx).optString("layer", "topmost") == "topmost" && MeowAccessibilityService.enabledInSettings(ctx)
+        if (!Settings.canDrawOverlays(ctx) && !topOk) { p.reject("NO_OVERLAY", "Overlay permission is not granted"); return }
         try {
             ctx.getSharedPreferences("island", 0).edit().putBoolean("autostart", true).apply()
             IslandService.lastError = ""

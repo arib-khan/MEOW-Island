@@ -77,6 +77,14 @@ export default function Settings() {
       if (!ok) Alert.alert('Add it from your home screen', 'Your launcher cannot add widgets from inside an app. Long-press an empty spot on the home screen, tap Widgets, find Meow Island and drag the one you want.');
     } catch (e: any) { Alert.alert('Could not add the widget', String(e?.message ?? e)); }
   };
+  const pickLayer = (k: string) => {
+    if (k === 'standard') return update({ layer: 'standard' });
+    update({ layer: 'topmost' });
+    if (!p.a11y) Alert.alert('Use the topmost layer?', 'Android only lets an app draw above the status bar and navigation bar through an accessibility overlay window. Turning this on enables a Meow Island accessibility service that exists ONLY to hold the island window. It does not read your screen, watch what you do, receive events or collect any data. Android will show a standard warning for accessibility services. You can switch back to the standard layer at any time.', [
+      { text: 'Not now', style: 'cancel', onPress: () => update({ layer: 'standard' }) },
+      { text: 'Open accessibility settings', onPress: () => native.requestAccessibility() },
+    ]);
+  };
   const confirmReset = () => Alert.alert('Reset appearance?', 'Size, colours, animation and emoji go back to defaults. Position, monitored apps and reminders are kept.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Reset', style: 'destructive', onPress: reset }]);
 
   return (
@@ -90,6 +98,19 @@ export default function Settings() {
           <Btn small title="Step heatmap" onPress={() => pin('heat')} />
         </View>
         <Sub>The clocks tick on their own. The heatmap shows your step-goal history in purple and stays empty until you turn on “Contribution heatmap” in Health. Adding a widget never starts any tracking. Date, battery and steps lines refresh about every 30 minutes (the heatmap more often while steps change).</Sub>
+      </Card>
+
+      <Card>
+        <H>Overlay layer</H>
+        <Chips value={cfg.layer} onPick={pickLayer} items={[{ k: 'topmost', l: 'Topmost' }, { k: 'standard', l: 'Standard' }]} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 6 }}>
+          <Text style={{ color: C.text }}>Accessibility layer service</Text><Chip ok={p.a11y} label={p.a11y ? 'Enabled' : 'Not enabled'} />
+        </View>
+        <Sub>{cfg.layer === 'topmost'
+          ? (p.a11y ? 'Active: the island is drawn above the status bar and navigation bar, even over the clock and icons.' : 'Waiting: until the service is enabled in Android settings the island uses the standard layer, which Android draws BELOW the status-bar icons.')
+          : 'Standard: Android draws the clock and icons over the island. Needs only “Display over other apps”.'}</Sub>
+        {cfg.layer === 'topmost' && !p.a11y && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small title="Open accessibility settings" onPress={() => native.requestAccessibility()} /></View>}
+        <Sub>The service is inert: no events, no screen content, no gestures, no data. Some phones list it as restricted when installed from a file: open App info → ⋮ → Allow restricted settings first. Android still keeps a few things above any app window (for example some system dialogs).</Sub>
       </Card>
 
       <Card>

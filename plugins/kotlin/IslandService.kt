@@ -272,6 +272,8 @@ class IslandService : Service() {
     private var lastPulse = 0L
     private var hidden = false
     private var fsCount = 0
+    private var topmost = false
+    private var createdAt = 0L
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -289,14 +291,67 @@ class IslandService : Service() {
         try {
             startAsForeground()  // must happen first, Android kills the app if it is late
             if (inst != null) { stopSelf(); return }  // never two overlays
-            if (!Settings.canDrawOverlays(this)) { fail("Overlay permission is not granted"); return }
-            wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            buildView()
             inst = this
-            lastError = ""
-            IslandModule.emit("islandState", mapOf("running" to true, "error" to ""))
-            main.post(tick)
+            createdAt = System.currentTimeMillis()
+            if (tryBuild()) { lastError = ""; emitRunning(); main.post(tick); return }
+            // Right after boot the accessibility service may still be connecting: wait for it instead of failing.
+            if (Cfg.read(this).optString("layer", "topmost") == "topmost" && MeowAccessibilityService.enabledInSettings(this)) { main.post(tick); return }
+            inst = null
+            fail(if (lastError.isNotEmpty()) lastError else "Overlay permission is not granted")
         } catch (e: Exception) { fail(e.message ?: e.javaClass.simpleName) }
+    }
+
+    fun layerName(): String = if (topmost) "topmost" else "standard"
+    private fun emitRunning() { IslandModule.emit("islandState", mapOf("running" to true, "error" to "", "layer" to layerName())) }
+
+    /**
+     * Chooses the window layer. "topmost" = TYPE_ACCESSIBILITY_OVERLAY from the (inert) accessibility service: above the status bar and
+     * navigation bar, no overlay permission needed. Otherwise the standard TYPE_APPLICATION_OVERLAY, which Android places BELOW system bars.
+     */
+    private fun tryBuild(): Boolean {
+        if (outer != null) return true
+        val svc = MeowAccessibilityService.inst
+        val top = Cfg.read(this).optString("layer", "topmost") == "topmost" && svc != null
+        if (!top && !Settings.canDrawOverlays(this)) return false
+        return try {
+            wm = (if (top && svc != null) svc else this).getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            topmost = top
+            buildView()
+            true
+        } catch (e: Exception) { outer = null; lastError = e.message ?: e.javaClass.simpleName; false }
+    }
+
+    private fun newParams(c: JSONObject, w: Int, h: Int): WindowManager.LayoutParams {
+        @Suppress("DEPRECATION")
+        val type = if (topmost) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            else if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+        val l = WindowManager.LayoutParams(w, h, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT)
+        l.gravity = Gravity.TOP or Gravity.START          // x/y are plain pixels from the top-left of the screen
+        if (Build.VERSION.SDK_INT >= 28) l.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        if (Build.VERSION.SDK_INT >= 30) l.fitInsetsTypes = 0   // we position ourselves; do not let the system inset the window
+        if (hidden) l.flags = l.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        return l
+    }
+
+    /** Moves the same island view to the other layer (user switched mode, or the accessibility service connected/disconnected). */
+    private fun rebuildWindow(top: Boolean) {
+        val o = outer ?: return
+        val svc = MeowAccessibilityService.inst
+        sizeAnim?.cancel()
+        try { wm?.removeView(o) } catch (e: Exception) { }
+        val useTop = top && svc != null
+        wm = (if (useTop && svc != null) svc else this).getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        topmost = useTop
+        val old = lp
+        val l = newParams(Cfg.read(this), old?.width ?: dp(120), old?.height ?: dp(34))
+        if (old != null) { l.x = old.x; l.y = old.y }
+        lp = l
+        try { wm!!.addView(o, l) } catch (e: Exception) { fail(e.message ?: "Could not move the island to the other layer"); return }
+        emitRunning()
+        layoutPill(false)
     }
 
     private fun fail(msg: String) {
@@ -452,15 +507,7 @@ class IslandService : Service() {
         outer = o
         applyStyle()
 
-        @Suppress("DEPRECATION")
-        val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
-        val l = WindowManager.LayoutParams(minW, minH + earsH(), type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT)
-        l.gravity = Gravity.TOP or Gravity.START          // x/y are plain pixels from the top-left of the screen
-        if (Build.VERSION.SDK_INT >= 28) l.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        if (Build.VERSION.SDK_INT >= 30) l.fitInsetsTypes = 0   // we position ourselves; do not let the system inset the window
+        val l = newParams(c, minW, minH + earsH())
         lp = l
         val p0 = place(l.width, l.height, c); l.x = p0[0]; l.y = p0[1]
 
@@ -717,7 +764,20 @@ class IslandService : Service() {
         override fun run() {
             var interactive = true
             try {
-                if (!Settings.canDrawOverlays(this@IslandService)) {      // permission revoked while running
+                if (outer == null) {                                       // still waiting for the accessibility layer (e.g. after boot)
+                    if (tryBuild()) emitRunning()
+                    else if (System.currentTimeMillis() - createdAt > 90000L) { fail("The accessibility layer did not connect. Open Meow Island > Settings > Overlay layer."); return }
+                    main.postDelayed(this, 2000L)
+                    return
+                }
+                val wantTop = Cfg.read(this@IslandService).optString("layer", "topmost") == "topmost" && MeowAccessibilityService.inst != null
+                if (wantTop != topmost) {
+                    if (!wantTop && !Settings.canDrawOverlays(this@IslandService)) {
+                        fail("The accessibility layer was turned off and overlay permission is not granted. Open Meow Island and grant one of them.")
+                        return
+                    }
+                    rebuildWindow(wantTop)
+                } else if (!topmost && !Settings.canDrawOverlays(this@IslandService)) {   // permission revoked while running
                     fail("Overlay permission was revoked. Open Meow Island and grant it again.")
                     return
                 }

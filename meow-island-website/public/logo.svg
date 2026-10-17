@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MEOW Island">
+  <rect width="64" height="64" rx="14" fill="#140f24"/>
+  <polygon fill="#B79CFF" points="12,8 28,19 13,34"/><polygon fill="#B79CFF" points="52,8 36,19 51,34"/>
+  <polygon fill="#FFA0C8" points="14.5,14 22,19 15,26"/><polygon fill="#FFA0C8" points="49.5,14 42,19 49,26"/>
+  <ellipse cx="32" cy="38" rx="21" ry="17" fill="#B79CFF"/>
+  <rect x="25" y="25" width="14" height="5" rx="2.5" fill="#140f24"/>
+  <ellipse cx="24.5" cy="39" rx="3.2" ry="4.2" fill="#140f24"/><ellipse cx="39.5" cy="39" rx="3.2" ry="4.2" fill="#140f24"/>
+  <circle cx="25.4" cy="37.6" r="1" fill="#fff"/><circle cx="40.4" cy="37.6" r="1" fill="#fff"/>
+  <polygon fill="#FFA0C8" points="29.5,44.5 34.5,44.5 32,47.2"/>
+  <path d="M32 47.2v2M29.6 50.4c-1.1 1.1-2.5 1.1-3.2 0M34.4 50.4c1.1 1.1 2.5 1.1 3.2 0" fill="none" stroke="#140f24" stroke-width="1" stroke-linecap="round"/>
+</svg>

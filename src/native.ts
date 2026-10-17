@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 const N: any = NativeModules.IslandModule;
 export const available = !!N;
 /** False when the installed APK was built from older native code (e.g. prebuild --clean failed). */
-export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 5;
+export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 6;
 export const events = N ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);
 
 export type AppInfo = { pkg: string; name: string; icon: string };
@@ -19,6 +19,9 @@ export const native = {
   requestExactAlarm: () => N.requestExactAlarm(),
   openNotificationSettings: () => N.openNotificationSettings(),
   openBatterySettings: () => N.openBatterySettings(),
+  hasAccessibility: (): Promise<boolean> => N.hasAccessibility(),
+  requestAccessibility: () => N.requestAccessibility(),
+  getLayer: (): Promise<string> => N.getLayer(),
   startIsland: (): Promise<boolean> => N.startIsland(),
   stopIsland: (): Promise<boolean> => N.stopIsland(),
   isRunning: (): Promise<boolean> => N.isRunning(),
@@ -40,8 +43,8 @@ export const native = {
   getUsageToday: (): Promise<Record<string, number>> => N.getUsageToday(),
 };
 
-export type Perms = { overlay: boolean; notif: boolean; listener: boolean; usage: boolean; exact: boolean; battery: boolean };
-const NONE: Perms = { overlay: false, notif: false, listener: false, usage: false, exact: false, battery: false };
+export type Perms = { a11y: boolean; overlay: boolean; notif: boolean; listener: boolean; usage: boolean; exact: boolean; battery: boolean };
+const NONE: Perms = { a11y: false, overlay: false, notif: false, listener: false, usage: false, exact: false, battery: false };
 
 /** Live permission status; re-checked every time the app returns to the foreground. */
 export function usePerms() {
@@ -49,10 +52,10 @@ export function usePerms() {
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
     try {
-      const [overlay, notif, listener, usage, exact, battery] = await Promise.all([
-        N.hasOverlay(), N.hasNotificationPermission(), N.hasNotificationAccess(), N.hasUsageAccess(), N.canScheduleExactAlarms(), N.isIgnoringBattery(),
+      const [a11y, overlay, notif, listener, usage, exact, battery] = await Promise.all([
+        N.hasAccessibility(), N.hasOverlay(), N.hasNotificationPermission(), N.hasNotificationAccess(), N.hasUsageAccess(), N.canScheduleExactAlarms(), N.isIgnoringBattery(),
       ]);
-      setP({ overlay, notif, listener, usage, exact, battery });
+      setP({ a11y, overlay, notif, listener, usage, exact, battery });
     } catch { /* leave previous values */ }
     setLoading(false);
   }, []);
