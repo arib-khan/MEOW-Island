@@ -71,7 +71,7 @@ export default function Settings() {
       <Sub>{why}</Sub>{!ok && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title={label} onPress={action} /></View>}
     </View>
   );
-  const pin = async (kind: 'clock' | 'round' | 'heat') => {
+  const pin = async (kind: 'clock' | 'round' | 'heat' | 'card') => {
     try {
       const ok = await native.pinWidget(kind);
       if (!ok) Alert.alert('Add it from your home screen', 'Your launcher cannot add widgets from inside an app. Long-press an empty spot on the home screen, tap Widgets, find Meow Island and drag the one you want.');
@@ -96,8 +96,9 @@ export default function Settings() {
           <Btn small title="Clock" onPress={() => pin('clock')} />
           <Btn small title="Round clock" onPress={() => pin('round')} />
           <Btn small title="Step heatmap" onPress={() => pin('heat')} />
+          <Btn small title="Step goals card" onPress={() => pin('card')} />
         </View>
-        <Sub>The clocks tick on their own. The heatmap shows your step-goal history in purple and stays empty until you turn on “Contribution heatmap” in Health. Adding a widget never starts any tracking. Date, battery and steps lines refresh about every 30 minutes (the heatmap more often while steps change).</Sub>
+        <Sub>The clocks tick on their own. The heatmap and the Step goals card (a day grid, today’s ring and progress, with a cat that cheers when you reach your goal) show your own step data and stay empty, with a prompt, until you turn on the matching features in Health. Adding a widget never starts any tracking. Date, battery and steps lines refresh about every 30 minutes (the heatmap more often while steps change).</Sub>
       </Card>
 
       <Card>

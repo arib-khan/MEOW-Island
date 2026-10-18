@@ -108,7 +108,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     /** Asks the launcher to pin a widget (Android 8+). Returns false when the launcher cannot, so the UI can explain the manual way. */
     @ReactMethod fun pinWidget(kind: String, p: Promise) {
         try {
-            val cls: Class<*> = when (kind) { "clock" -> MeowClockWidget::class.java; "round" -> MeowRoundClockWidget::class.java; else -> MeowHeatWidget::class.java }
+            val cls: Class<*> = when (kind) { "clock" -> MeowClockWidget::class.java; "round" -> MeowRoundClockWidget::class.java; "card" -> MeowStepCardWidget::class.java; else -> MeowHeatWidget::class.java }
             val m = AppWidgetManager.getInstance(ctx)
             if (Build.VERSION.SDK_INT >= 26 && m.isRequestPinAppWidgetSupported) { m.requestPinAppWidget(ComponentName(ctx, cls), null, null); p.resolve(true) }
             else p.resolve(false)

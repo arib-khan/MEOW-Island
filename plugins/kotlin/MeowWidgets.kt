@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -32,6 +33,14 @@ class MeowHeatWidget : AppWidgetProvider() {
     override fun onUpdate(ctx: Context, m: AppWidgetManager, ids: IntArray) { for (id in ids) m.updateAppWidget(id, MeowWidgets.heat(ctx, m, id)) }
     override fun onAppWidgetOptionsChanged(ctx: Context, m: AppWidgetManager, id: Int, newOptions: Bundle) {
         m.updateAppWidget(id, MeowWidgets.heat(ctx, m, id))   // redraw for the new size
+    }
+}
+
+/** "Step goals" card: a 9 x 6 day grid, today's ring and progress, and a cat. Separate from the Step Heatmap widget. */
+class MeowStepCardWidget : AppWidgetProvider() {
+    override fun onUpdate(ctx: Context, m: AppWidgetManager, ids: IntArray) { for (id in ids) m.updateAppWidget(id, MeowWidgets.stepCard(ctx, m, id)) }
+    override fun onAppWidgetOptionsChanged(ctx: Context, m: AppWidgetManager, id: Int, newOptions: Bundle) {
+        m.updateAppWidget(id, MeowWidgets.stepCard(ctx, m, id))
     }
 }
 
@@ -89,6 +98,45 @@ object MeowWidgets {
         return v
     }
 
+    private fun asset(ctx: Context, name: String): Bitmap? = try {
+        val id = rid(ctx, "drawable", name)
+        if (id == 0) null else BitmapFactory.decodeResource(ctx.resources, id, BitmapFactory.Options().also { it.inScaled = false })
+    } catch (e: Exception) { null }
+
+    /** Real values only. Nothing is shown unless the matching Health features are on; adding the widget never enables tracking. */
+    fun stepCard(ctx: Context, m: AppWidgetManager, id: Int): RemoteViews {
+        val v = RemoteViews(ctx.packageName, rid(ctx, "layout", "meow_widget_stepcard"))
+        v.setOnClickPendingIntent(rid(ctx, "id", "meow_root"), open(ctx))
+        val c = HealthEngine.cfg(ctx)
+        val stepsOn = c.optBoolean("stepCounter"); val goalOn = c.optBoolean("goalEnabled"); val heatOn = c.optBoolean("heatmap")
+        val rec = if (stepsOn) HealthEngine.todayRec(ctx) else null
+        val goal = maxOf(1, rec?.goal ?: c.optInt("goal", 8000))
+        val steps = rec?.steps ?: 0L
+        val has = stepsOn && rec != null
+        val reached = has && goalOn && steps >= goal
+        val label: String; val hint: String
+        if (!stepsOn) { label = "Step counter is off"; hint = "Turn it on in Meow Island \u2192 Health" }
+        else if (!HealthEngine.hasPermission(ctx)) { label = "Today's Steps"; hint = "Allow Physical activity in Health" }
+        else if (!has) { label = "Today's Steps"; hint = "Waiting for the first step reading" }
+        else { label = "Today's Steps"; hint = "" }
+        val subtitle = if (reached) "Goal reached!" else if (goalOn && has) "Keep moving" else "Every step counts"
+        val levels = if (heatOn) HealthEngine.recentLevels(ctx, StepCardRenderer.CELLS) else IntArray(StepCardRenderer.CELLS)
+        val data = StepCardData(steps, goal, has, goalOn, heatOn, levels, label, hint, subtitle, reached)
+
+        val o = m.getAppWidgetOptions(id)
+        val dens = ctx.resources.displayMetrics.density
+        val wPx = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 280) * dens
+        val hPx = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 370) * dens
+        // fit-centre inside the widget; capped at 720 px wide (~2.7 MB) to stay well inside RemoteViews' bitmap limits
+        val width = minOf(wPx, hPx * StepCardRenderer.RW / StepCardRenderer.RH).toInt().coerceIn(240, 720)
+        val bmp = StepCardRenderer.render(width, data, asset(ctx, if (reached) "meow_cat_happy" else "meow_cat_angry"), asset(ctx, "meow_paw"), asset(ctx, "meow_shoe"))
+        val img = rid(ctx, "id", "meow_card")
+        v.setImageViewBitmap(img, bmp)
+        v.setContentDescription(img, if (has) "Step goals: " + NumberFormat.getIntegerInstance().format(steps) + " steps" +
+            (if (goalOn) " of " + NumberFormat.getIntegerInstance().format(goal) + ", " + StepCardRenderer.pct(steps, goal) + " percent" else "") else label)
+        return v
+    }
+
     /** Draws the grid into a bitmap kept under ~240k pixels (RemoteViews bitmaps cross a size-limited binder call). */
     private fun renderHeat(ctx: Context, wDp: Float, hDp: Float): Bitmap {
         var s = ctx.resources.displayMetrics.density
@@ -127,5 +175,6 @@ object MeowWidgets {
         for (id in m.getAppWidgetIds(ComponentName(app, MeowClockWidget::class.java))) m.updateAppWidget(id, clock(app))
         for (id in m.getAppWidgetIds(ComponentName(app, MeowRoundClockWidget::class.java))) m.updateAppWidget(id, round(app))
         for (id in m.getAppWidgetIds(ComponentName(app, MeowHeatWidget::class.java))) m.updateAppWidget(id, heat(app, m, id))
+        for (id in m.getAppWidgetIds(ComponentName(app, MeowStepCardWidget::class.java))) m.updateAppWidget(id, stepCard(app, m, id))
     }
 }

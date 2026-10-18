@@ -94,6 +94,10 @@ object HealthEngine {
         }
     }
 
+    @Synchronized fun todayRec(ctx: Context): DayRec? = load(ctx).today(System.currentTimeMillis(), TimeZone.getDefault())
+
+    @Synchronized fun recentLevels(ctx: Context, n: Int): IntArray = load(ctx).recentLevels(System.currentTimeMillis(), TimeZone.getDefault(), n)
+
     @Synchronized fun todaySteps(ctx: Context): Long? = load(ctx).today(System.currentTimeMillis(), TimeZone.getDefault())?.steps
 
     @Synchronized fun gridLevels(ctx: Context, weeks: Int): Array<IntArray> =

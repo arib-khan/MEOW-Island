@@ -28,6 +28,7 @@ module.exports = (config) => {
     app.receiver.push(widget('MeowClockWidget', 'Meow Clock', 'meow_widget_clock_info'));
     app.receiver.push(widget('MeowRoundClockWidget', 'Meow Round Clock', 'meow_widget_round_info'));
     app.receiver.push(widget('MeowHeatWidget', 'Meow Step Heatmap', 'meow_widget_heat_info'));
+    app.receiver.push(widget('MeowStepCardWidget', 'Meow Step Goals', 'meow_widget_stepcard_info'));
     app.receiver.push({ $: { 'android:name': '.WaterReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.HealthReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });

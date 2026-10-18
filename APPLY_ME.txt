@@ -1,16 +1,16 @@
-MEOW ISLAND v5 (topmost overlay layer). Apply on top of v4. Unzip INTO your project folder (e.g. C:\si).
-One command per line in PowerShell. If your browser saved it as 'meow-island-v5 (1).zip', use that name.
+MEOW ISLAND v6 (adds the Step goals card widget). Apply on top of v5. Unzip INTO your project folder (e.g. C:\si).
+One command per line in PowerShell. If your browser saved it as 'meow-island-v6 (1).zip', use that name.
 
   cd C:\si
-  Expand-Archive -Path "$env:USERPROFILE\Downloads\meow-island-v5.zip" -DestinationPath C:\si -Force
+  Expand-Archive -Path "$env:USERPROFILE\Downloads\meow-island-v6.zip" -DestinationPath C:\si -Force
 
 CHECK (each must print one line; if one prints nothing the old file is still there):
 
-  Select-String -Path plugins\kotlin\MeowAccessibilityService.kt -Pattern "class MeowAccessibilityService"
-  Select-String -Path plugins\kotlin\IslandService.kt -Pattern "rebuildWindow"
-  Select-String -Path plugins\kotlin\IslandModule.kt -Pattern "hasAccessibility"
-  Select-String -Path plugins\withIsland.js -Pattern "meow_accessibility_config"
-  Get-ChildItem plugins\widgets\res -Recurse -File | Measure-Object | Select-Object Count      # expect 13
+  Select-String -Path plugins\kotlin\StepCardRenderer.kt -Pattern "object StepCardRenderer"
+  Select-String -Path plugins\kotlin\MeowWidgets.kt -Pattern "class MeowStepCardWidget"
+  Select-String -Path plugins\kotlin\IslandModule.kt -Pattern "MeowStepCardWidget"
+  Select-String -Path plugins\withIsland.js -Pattern "meow_widget_stepcard_info"
+  Get-ChildItem plugins\widgets\res -Recurse -File | Measure-Object | Select-Object Count      # expect 20
 
 Then (prompt must say PS C:\si>):
 
@@ -18,5 +18,5 @@ Then (prompt must say PS C:\si>):
   cd android
   .\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
 
-After installing: Settings tab > Overlay layer > Topmost > Open accessibility settings > Meow Island > turn on.
-(If Android calls it a restricted setting: Settings > Apps > Meow Island > menu > Allow restricted settings, then retry.)
+After installing: Settings tab > Home screen widgets > Step goals card (or long-press home > Widgets > Meow Island > Meow Step Goals).
+Turn on Health > Step counter / Daily step goal / Contribution heatmap to fill it. The other widgets are unchanged.
