@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 const N: any = NativeModules.IslandModule;
 export const available = !!N;
 /** False when the installed APK was built from older native code (e.g. prebuild --clean failed). */
-export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 6;
+export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 7;
 export const events = N ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);
 
 export type AppInfo = { pkg: string; name: string; icon: string };
@@ -33,7 +33,7 @@ export const native = {
   getTimers: (): Promise<TimerInfo[]> => N.getTimers(),
   setHealthConfig: (json: string) => N.setHealthConfig(json),
   getHealthSnapshot: (): Promise<string> => N.getHealthSnapshot(),
-  pinWidget: (kind: 'clock' | 'round' | 'heat' | 'card'): Promise<boolean> => N.pinWidget(kind),
+  pinWidget: (kind: 'clock' | 'round' | 'heat' | 'card' | 'music'): Promise<boolean> => N.pinWidget(kind),
   syncSteps: (): Promise<boolean> => N.syncSteps(),
   clearHealthData: (): Promise<boolean> => N.clearHealthData(),
   waterAction: (a: 'done' | 'snooze' | 'dismiss' | 'test') => N.waterAction(a),

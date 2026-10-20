@@ -7,13 +7,15 @@ export type WaterSettings = {
 };
 export type HealthCfg = {
   stepCounter: boolean; walkingIsland: boolean; goalEnabled: boolean; heatmap: boolean; heatmapOnIsland: boolean;
-  goal: number; walkSensitivity: 'low' | 'normal' | 'high'; walkReturnSec: number; water: WaterSettings;
+  goal: number; walkSensitivity: 'low' | 'normal' | 'high'; walkReturnSec: number; backgroundSteps: boolean; water: WaterSettings;
 };
 
 /** Everything is OFF by default: nothing health-related activates without the user's consent. */
 export const HEALTH_DEFAULTS: HealthCfg = {
   stepCounter: false, walkingIsland: false, goalEnabled: false, heatmap: false, heatmapOnIsland: false,
   goal: 8000, walkSensitivity: 'normal', walkReturnSec: 8,
+  // Only has an effect once a step feature is switched on (nothing starts by itself): keeps counting while locked / in the background.
+  backgroundSteps: true,
   water: {
     enabled: false, intervalMin: 60, startMin: 9 * 60, endMin: 21 * 60, days: [true, true, true, true, true, true, true],
     toIsland: true, toNotification: true, quietEnabled: false, quietStartMin: 13 * 60, quietEndMin: 14 * 60, snoozeMin: 10, pausedUntil: 0,
@@ -37,6 +39,7 @@ export function mergeHealth(saved: any): HealthCfg {
     goal: clamp(s.goal, 500, 100000, D.goal),
     walkSensitivity: s.walkSensitivity === 'low' || s.walkSensitivity === 'high' ? s.walkSensitivity : 'normal',
     walkReturnSec: clamp(s.walkReturnSec, 3, 60, D.walkReturnSec),
+    backgroundSteps: bool(s.backgroundSteps, D.backgroundSteps),
     water: {
       enabled: bool(w.enabled, DW.enabled), intervalMin: clamp(w.intervalMin, 5, 1440, DW.intervalMin),
       startMin: Math.min(start, end), endMin: Math.max(start, end), days,

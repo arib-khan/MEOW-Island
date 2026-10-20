@@ -8,13 +8,13 @@ export type Config = {
   w: number; h: number; r: number; bg: string; fg: string; expandMs: number; animMs: number;
   notifEnabled: boolean; notifPreview: boolean; musicEnabled: boolean; guardEnabled: boolean;
   angry: string; happy: string; warnText: string; happyMs: number; limits: LimitItem[];
-  fx: number; fy: number; posArea: 'statusbar' | 'usable' | 'screen'; layer: 'topmost' | 'standard'; hideFullscreen: boolean; ears: boolean; remindMin: number; cfgVersion: number;
+  fx: number; fy: number; posArea: 'statusbar' | 'usable' | 'screen'; layer: 'topmost' | 'standard'; dancingCat: boolean; hideFullscreen: boolean; ears: boolean; remindMin: number; cfgVersion: number;
 };
 export const DEFAULTS: Config = {
   w: 120, h: 34, r: 22, bg: '#000000', fg: '#FFFFFF', expandMs: 5000, animMs: 280,
   notifEnabled: true, notifPreview: true, musicEnabled: true, guardEnabled: true,
   angry: '\u{1F63E}', happy: '\u{1F63A}', warnText: 'Daily limit reached', happyMs: 3000, limits: [],
-  fx: 0.5, fy: 0, posArea: 'statusbar', layer: 'topmost', hideFullscreen: true, ears: true, remindMin: 5, cfgVersion: CONFIG_VERSION,
+  fx: 0.5, fy: 0, posArea: 'statusbar', layer: 'topmost', dancingCat: true, hideFullscreen: true, ears: true, remindMin: 5, cfgVersion: CONFIG_VERSION,
 };
 const hexToInt = (h: string) => (parseInt(h.replace('#', ''), 16) | 0xff000000) | 0;
 const toNative = (c: Config) => JSON.stringify({ ...c, bg: hexToInt(c.bg), fg: hexToInt(c.fg) });

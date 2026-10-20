@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp" android:minHeight="110dp" android:minResizeWidth="220dp" android:minResizeHeight="100dp"
+    android:targetCellWidth="4" android:targetCellHeight="2" android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/meow_widget_music_idle" android:previewImage="@drawable/meow_preview_music"
+    android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen"/>

@@ -83,7 +83,7 @@ export default function Health() {
     if (!cfg.stepCounter) return <Sub>Turn on “Step counter” above to see today’s steps here.</Sub>;
     if (!snap) return <Loading label="Reading sensor…" />;
     if (st && !st.counter && !st.detector) return <ErrorBox text="This phone has no step sensor, so steps cannot be tracked." />;
-    if (st && !st.permission) return <View><ErrorBox text="Physical activity permission is required to count steps." /><Btn title="Grant permission" onPress={needsSensorConsent} /></View>;
+    if (st && !st.permission) return <View><ErrorBox text="Physical activity permission is required to count steps." /><Btn title="Grant permission" onPress={async () => { if (await needsSensorConsent()) update({}); }} /></View>;
     if (!snap.hasToday) return <Sub>Waiting for the first sensor reading. Steps taken before tracking started are never guessed.</Sub>;
     return (
       <View>
@@ -116,6 +116,11 @@ export default function Health() {
         <Toggle label="Contribution heatmap" hint="A calendar of the days you reached your goal." value={cfg.heatmap} onChange={(v) => toggleStep('heatmap', v)} />
         {cfg.heatmap && <Toggle label="Heatmap preview on island" hint="Shows the last 7 days when the walking/goal island is expanded." value={cfg.heatmapOnIsland} onChange={(v) => update({ heatmapOnIsland: v })} />}
         <Sub>Step features share one local sensor reader, which runs only while at least one of them is on. Detection depends on your phone’s sensor and can be delayed or inaccurate.</Sub>
+        {(cfg.stepCounter || cfg.walkingIsland || cfg.goalEnabled || cfg.heatmap) && <>
+          <View style={{ height: 6 }} />
+          <Toggle label="Count steps in the background" hint="Keeps your totals current while the phone is locked or the app is closed. Uses the hardware step counter in batches (very little battery) and shows one small silent notification. Off: totals catch up about every 30 minutes and when you open the app." value={cfg.backgroundSteps} onChange={(v) => update({ backgroundSteps: v })} />
+          <Sub>{cfg.backgroundSteps ? (snap?.status.bg ? 'Background counting: running. Your totals refresh when you unlock the phone.' : 'Background counting: not running yet (needs the Physical activity permission). Some phones stop background apps: if so, totals still catch up on the next reading.') : 'Background counting is off.'}</Sub>
+        </>}
         <View style={{ height: 8 }} />
         <Stepper label="Daily goal" value={cfg.goal} min={500} max={50000} step={500} unit=" steps" onChange={(v) => update({ goal: v })} />
         <Sub>Changing the goal updates today only. Past days keep the goal they ended with, so history stays accurate.</Sub>

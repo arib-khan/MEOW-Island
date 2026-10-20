@@ -15,6 +15,8 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.Handler
+import android.os.SystemClock
+import android.provider.Settings
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import org.json.JSONArray
@@ -40,6 +42,7 @@ object HealthEngine {
     private var lastEmit = 0L
     private var lastWidget = 0L
     private var live: SensorEventListener? = null
+    private var liveLatencyUs = -1
     private val walk = WalkDetector()
     private val fmt: NumberFormat = NumberFormat.getIntegerInstance()
 
@@ -64,6 +67,7 @@ object HealthEngine {
         try {
             val o = JSONObject(ctx.applicationContext.getSharedPreferences(PREF, 0).getString("ledger", "{}") ?: "{}")
             l.lastRaw = o.optLong("lastRaw", -1L)
+            l.lastBoot = o.optInt("lb", -1); l.lastTs = o.optLong("lt", 0L)
             val d = o.optJSONObject("days")
             if (d != null) for (k in d.keys()) {
                 val j = d.getJSONObject(k)
@@ -80,7 +84,7 @@ object HealthEngine {
         if (!force && now - lastSave < 5000L) return
         lastSave = now
         l.prune(now, TimeZone.getDefault())
-        val o = JSONObject(); o.put("lastRaw", l.lastRaw)
+        val o = JSONObject(); o.put("lastRaw", l.lastRaw); o.put("lb", l.lastBoot); o.put("lt", l.lastTs)
         val d = JSONObject()
         for ((k, r) in l.days) {
             val j = JSONObject(); j.put("s", r.steps); j.put("g", r.goal); j.put("p", r.partial); j.put("f", r.firstAt); j.put("l", r.lastAt)
@@ -104,13 +108,24 @@ object HealthEngine {
         HeatGrid.build(load(ctx).days, System.currentTimeMillis(), TimeZone.getDefault(), weeks)
 
     // ---------- readings ----------
-    @Synchronized fun onSensor(ctx: Context, type: Int, value: Float) {
+    private fun bootId(ctx: Context): Int =
+        try { Settings.Global.getInt(ctx.applicationContext.contentResolver, Settings.Global.BOOT_COUNT, -1) } catch (e: Exception) { -1 }
+
+    /** Wall-clock time a sensor event was SAMPLED (batched events arrive late). Falls back to "now" if the timestamp looks unusable. */
+    private fun eventWallMs(tsNs: Long, now: Long): Long {
+        if (tsNs <= 0L) return now
+        val ageMs = (SystemClock.elapsedRealtimeNanos() - tsNs) / 1000000L
+        return if (ageMs < 0L || ageMs > 7L * 86400000L) now else now - ageMs
+    }
+
+    @Synchronized fun onSensor(ctx: Context, type: Int, value: Float, tsNs: Long = 0L) {
         val c = cfg(ctx)
         if (!needed(c)) return
         val now = System.currentTimeMillis(); val tz = TimeZone.getDefault(); val l = load(ctx); val g = goal(c)
-        val delta: Long = if (type == Sensor.TYPE_STEP_COUNTER) l.onCounter(value.toLong(), now, tz, g) else { l.onDetected(1, now, tz, g); 1L }
-        // large deltas are catch-up readings (screen was off), not live walking
-        if (delta in 1..25) walk.onSteps(delta.toInt(), now)
+        val at = eventWallMs(tsNs, now)
+        val delta: Long = if (type == Sensor.TYPE_STEP_COUNTER) l.onCounter(value.toLong(), at, tz, g, bootId(ctx), tsNs) else { l.onDetected(1, at, tz, g); 1L }
+        // only live, small deltas drive walking mode; catch-up readings (screen was off, batched events) never do
+        if (delta in 1..25 && now - at < 3000L) walk.onSteps(delta.toInt(), now)
         save(ctx, false)
         if (now - lastEmit > 1000L) {
             lastEmit = now
@@ -151,30 +166,40 @@ object HealthEngine {
     }
 
     // ---------- live listener (hosted by the island service) ----------
+    /**
+     * One shared listener for the whole process (never two). It runs while the screen is on, or while the background step service is
+     * alive. Screen off => the hardware batches events (5 min), which is what keeps battery use near zero; screen on without walking
+     * mode => 30 s batches; walking mode => unbatched so the island progress bar feels live.
+     */
     @Synchronized fun ensureLive(ctx: Context, interactive: Boolean) {
         val c = cfg(ctx)
-        val should = interactive && needed(c) && hasPermission(ctx) && (sensorOf(ctx, Sensor.TYPE_STEP_COUNTER) != null || sensorOf(ctx, Sensor.TYPE_STEP_DETECTOR) != null)
-        if (should && live == null) startLive(ctx)
-        else if (!should && live != null) stopLive(ctx)
+        val bg = StepService.alive && c.optBoolean("backgroundSteps", true)
+        val should = (interactive || bg) && needed(c) && hasPermission(ctx) && (sensorOf(ctx, Sensor.TYPE_STEP_COUNTER) != null || sensorOf(ctx, Sensor.TYPE_STEP_DETECTOR) != null)
+        val latency = if (interactive && c.optBoolean("walkingIsland")) 0 else if (interactive) 30000000 else 300000000   // microseconds
+        if (should) {
+            if (live != null && latency != liveLatencyUs) stopLive(ctx)
+            if (live == null) startLive(ctx, latency)
+        } else if (live != null) stopLive(ctx)
     }
 
-    private fun startLive(ctx: Context) {
+    private fun startLive(ctx: Context, latencyUs: Int) {
         val sm = ctx.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val counter = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         val s = counter ?: sm.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) ?: return
         val app = ctx.applicationContext
         val l = object : SensorEventListener {
-            override fun onSensorChanged(e: SensorEvent) { onSensor(app, e.sensor.type, e.values[0]) }
+            override fun onSensorChanged(e: SensorEvent) { onSensor(app, e.sensor.type, e.values[0], e.timestamp) }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) { }
         }
         live = l
-        sm.registerListener(l, s, SensorManager.SENSOR_DELAY_NORMAL)
+        liveLatencyUs = latencyUs
+        sm.registerListener(l, s, SensorManager.SENSOR_DELAY_NORMAL, latencyUs)   // 4th argument = max report latency (hardware batching)
     }
 
     @Synchronized fun stopLive(ctx: Context) {
         val l = live ?: return
         (ctx.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager).unregisterListener(l)
-        live = null
+        live = null; liveLatencyUs = -1
         save(ctx, true)
     }
 
@@ -205,7 +230,7 @@ object HealthEngine {
             override fun onSensorChanged(e: SensorEvent) {
                 if (finished) return
                 finished = true; sm.unregisterListener(this)
-                onSensor(app, Sensor.TYPE_STEP_COUNTER, e.values[0]); save(app, true); done()
+                onSensor(app, Sensor.TYPE_STEP_COUNTER, e.values[0], e.timestamp); save(app, true); done()
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) { }
         }
@@ -227,7 +252,24 @@ object HealthEngine {
             refreshIsland(ctx, c)
         }
         armSync(ctx)
+        updateStepService(ctx)
         try { MeowWidgets.updateAll(ctx.applicationContext) } catch (e: Exception) { }
+    }
+
+    /** Background counting needs: a step feature on, the user's "count in the background" switch, permission and a sensor. */
+    fun backgroundWanted(ctx: Context): Boolean {
+        val c = cfg(ctx)
+        return needed(c) && c.optBoolean("backgroundSteps", true) && hasPermission(ctx) &&
+            (sensorOf(ctx, Sensor.TYPE_STEP_COUNTER) != null || sensorOf(ctx, Sensor.TYPE_STEP_DETECTOR) != null)
+    }
+
+    private fun updateStepService(ctx: Context) {
+        val app = ctx.applicationContext
+        try {
+            if (backgroundWanted(app)) {
+                if (!StepService.alive) androidx.core.content.ContextCompat.startForegroundService(app, Intent(app, StepService::class.java))
+            } else app.stopService(Intent(app, StepService::class.java))
+        } catch (e: Exception) { }   // e.g. Android refused a background start; the ~30 min alarm sync still keeps totals correct
     }
 
     @Synchronized fun clear(ctx: Context) {
@@ -249,7 +291,7 @@ object HealthEngine {
         o.put("days", d)
         val st = JSONObject()
         st.put("counter", sensorOf(ctx, Sensor.TYPE_STEP_COUNTER) != null); st.put("detector", sensorOf(ctx, Sensor.TYPE_STEP_DETECTOR) != null)
-        st.put("permission", hasPermission(ctx)); st.put("sdk", Build.VERSION.SDK_INT); st.put("live", live != null)
+        st.put("permission", hasPermission(ctx)); st.put("sdk", Build.VERSION.SDK_INT); st.put("live", live != null); st.put("bg", StepService.alive)
         o.put("status", st)
         val w = JSONObject()
         val sp = ctx.applicationContext.getSharedPreferences("health_water", 0)

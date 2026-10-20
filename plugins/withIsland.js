@@ -5,7 +5,7 @@ const PKG = 'com.smartisland.app';
 module.exports = (config) => {
   config = withAndroidManifest(config, (c) => {
     const m = c.modResults.manifest;
-    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION'];
+    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION','FOREGROUND_SERVICE_HEALTH'];
     m['uses-permission'] = m['uses-permission'] || [];
     perms.forEach(p => { if (!m['uses-permission'].some(x => x.$['android:name']===`android.permission.${p}`)) m['uses-permission'].push({$:{'android:name':`android.permission.${p}`}}); });
     const app = m.application[0]; app.service = app.service || [];
@@ -17,6 +17,8 @@ module.exports = (config) => {
     // Step sensor is optional hardware; do not hide the app from devices without it.
     m['uses-feature'] = m['uses-feature'] || [];
     m['uses-feature'].push({ $: { 'android:name': 'android.hardware.sensor.stepcounter', 'android:required': 'false' } });
+    // Optional low-power background step counting (health-type foreground service; needs ACTIVITY_RECOGNITION).
+    app.service.push({ $: { 'android:name': '.StepService', 'android:exported': 'false', 'android:foregroundServiceType': 'health' } });
     // Optional, inert accessibility service: only hosts the topmost (accessibility-overlay) window layer.
     app.service.push({ $: { 'android:name': '.MeowAccessibilityService', 'android:exported': 'true', 'android:label': 'Meow Island', 'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE' },
       'intent-filter': [{ action: [{ $: { 'android:name': 'android.accessibilityservice.AccessibilityService' } }] }],
@@ -29,6 +31,8 @@ module.exports = (config) => {
     app.receiver.push(widget('MeowRoundClockWidget', 'Meow Round Clock', 'meow_widget_round_info'));
     app.receiver.push(widget('MeowHeatWidget', 'Meow Step Heatmap', 'meow_widget_heat_info'));
     app.receiver.push(widget('MeowStepCardWidget', 'Meow Step Goals', 'meow_widget_stepcard_info'));
+    app.receiver.push(widget('MeowMusicWidget', 'Meow Dancing Cat', 'meow_widget_music_info'));
+    app.receiver.push({ $: { 'android:name': '.MeowMusicActionReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.WaterReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.HealthReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });

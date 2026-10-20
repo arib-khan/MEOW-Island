@@ -68,6 +68,7 @@ class MediaListener : NotificationListenerService() {
         IslandBus.remove("music")
         snapshot = mapOf("active" to false)
         IslandModule.emit("media", snapshot)
+        MeowMusic.refresh(this)
         if (inst === this) inst = null
     }
 
@@ -112,12 +113,14 @@ class MediaListener : NotificationListenerService() {
         snap["app"] = c.packageName ?: ""
         snapshot = snap
         IslandModule.emit("media", snap)
+        MeowMusic.refresh(this)
     }
 
     private fun publishNone() {
         IslandBus.remove("music")
         snapshot = mapOf("active" to false)
         IslandModule.emit("media", snapshot)
+        MeowMusic.refresh(this)
     }
 
     private fun appLabel(pkg: String): String = try {

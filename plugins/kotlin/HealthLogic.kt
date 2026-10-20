@@ -22,6 +22,10 @@ class DayRec(var steps: Long, var goal: Int, var partial: Boolean, var firstAt: 
  * Days are keyed by the device's LOCAL calendar date. Each day keeps the goal that was active that day.
  */
 class StepLedger(var lastRaw: Long = -1L, val days: MutableMap<String, DayRec> = LinkedHashMap()) {
+    /** Boot counter of the last reading (-1 unknown) and the sensor timestamp (ns since boot) of the last accepted event. */
+    var lastBoot: Int = -1
+    var lastTs: Long = 0L
+
     companion object {
         fun dayKey(ms: Long, tz: TimeZone): String {
             val c = Calendar.getInstance(tz)
@@ -33,11 +37,19 @@ class StepLedger(var lastRaw: Long = -1L, val days: MutableMap<String, DayRec> =
     private fun rec(key: String, now: Long, goal: Int, partial: Boolean): DayRec =
         days.getOrPut(key) { DayRec(0L, goal, partial, now, now) }
 
-    /** Feed a cumulative reading. Returns the steps added (never negative). */
-    fun onCounter(raw: Long, now: Long, tz: TimeZone, goal: Int): Long {
+    /**
+     * Feed a cumulative reading. Returns the steps added (never negative).
+     * [now] should be the wall-clock time the steps were SAMPLED (event time), so batched or late events land on the right day.
+     * [boot] is Android's boot counter (-1 unknown): a changed boot id is a reboot even when the new count is higher than the old one.
+     * [tsNs] is the sensor event timestamp: events not newer than the last accepted one are stale/duplicates and are ignored.
+     */
+    fun onCounter(raw: Long, now: Long, tz: TimeZone, goal: Int, boot: Int = -1, tsNs: Long = 0L): Long {
         val key = dayKey(now, tz)
+        val bootKnown = boot >= 0 && lastBoot >= 0
+        if (bootKnown && boot == lastBoot && tsNs > 0L && lastTs > 0L && tsNs <= lastTs) return 0L   // duplicate or out-of-order event
         val first = lastRaw < 0L
-        val reset = !first && raw < lastRaw
+        val reset = !first && (if (bootKnown) boot != lastBoot else raw < lastRaw)
+        if (!first && !reset && raw < lastRaw) return 0L   // count went DOWN without a reboot: sensor glitch / stale value, never count it
         val delta = when {
             first -> 0L                 // steps taken before tracking started are unknown: never invented
             reset -> raw                // counter restarted at boot: everything it reports happened after our last reading
@@ -46,8 +58,10 @@ class StepLedger(var lastRaw: Long = -1L, val days: MutableMap<String, DayRec> =
         val r = rec(key, now, goal, first)   // the first day we ever track is partial (we missed the earlier steps)
         if (reset) r.partial = true          // steps between the last reading and the reboot cannot be recovered
         r.steps += delta
-        r.lastAt = now
+        r.lastAt = maxOf(r.lastAt, now)
         lastRaw = raw
+        if (boot >= 0) lastBoot = boot
+        if (tsNs > 0L) lastTs = tsNs
         return delta
     }
 

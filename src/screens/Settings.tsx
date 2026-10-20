@@ -71,7 +71,7 @@ export default function Settings() {
       <Sub>{why}</Sub>{!ok && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title={label} onPress={action} /></View>}
     </View>
   );
-  const pin = async (kind: 'clock' | 'round' | 'heat' | 'card') => {
+  const pin = async (kind: 'clock' | 'round' | 'heat' | 'card' | 'music') => {
     try {
       const ok = await native.pinWidget(kind);
       if (!ok) Alert.alert('Add it from your home screen', 'Your launcher cannot add widgets from inside an app. Long-press an empty spot on the home screen, tap Widgets, find Meow Island and drag the one you want.');
@@ -97,6 +97,7 @@ export default function Settings() {
           <Btn small title="Round clock" onPress={() => pin('round')} />
           <Btn small title="Step heatmap" onPress={() => pin('heat')} />
           <Btn small title="Step goals card" onPress={() => pin('card')} />
+          <Btn small title="Dancing cat music" onPress={() => pin('music')} />
         </View>
         <Sub>The clocks tick on their own. The heatmap and the Step goals card (a day grid, today’s ring and progress, with a cat that cheers when you reach your goal) show your own step data and stay empty, with a prompt, until you turn on the matching features in Health. Adding a widget never starts any tracking. Date, battery and steps lines refresh about every 30 minutes (the heatmap more often while steps change).</Sub>
       </Card>
@@ -144,6 +145,7 @@ export default function Settings() {
       <Card>
         <H>Behaviour</H>
         <Toggle label="Hide island during full-screen video" hint="Best effort. Needs Usage Access; works when a playing video app is in landscape or (YouTube-type apps) hides the system bars." value={cfg.hideFullscreen} onChange={(v) => update({ hideFullscreen: v })} />
+        <Toggle label="Dancing Cat Mode" hint="The cat on the Dancing Cat music widget dances only while music is actually playing. Off: it stays still, and the widget still shows the track and works as a remote." value={cfg.dancingCat} onChange={(v) => update({ dancingCat: v })} />
         <Toggle label="Music on island" hint="Real media session: title, artist, artwork and working controls." value={cfg.musicEnabled} onChange={(v) => update({ musicEnabled: v })} />
         <Toggle label="Notification previews" hint="Show other apps’ notifications on the island." value={cfg.notifEnabled} onChange={(v) => update({ notifEnabled: v })} />
         <Toggle label="Show notification text" hint="Off = only “New notification” (privacy)." value={cfg.notifPreview} onChange={(v) => update({ notifPreview: v })} />

@@ -6,7 +6,7 @@ import { DayRec, HEALTH_DEFAULTS, HealthCfg, WaterSettings, mergeHealth } from '
 
 export type Snapshot = {
   day: string; steps: number; goal: number; partial: boolean; hasToday: boolean; days: Record<string, DayRec>;
-  status: { counter: boolean; detector: boolean; permission: boolean; sdk: number; live: boolean };
+  status: { counter: boolean; detector: boolean; permission: boolean; sdk: number; live: boolean; bg: boolean };
   water: { glasses: number; nextAt: number; snoozeAt: number };
 };
 type Ctx = {

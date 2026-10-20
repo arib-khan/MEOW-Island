@@ -90,7 +90,37 @@ fun main() {
     while (count < 6) { val x = WaterSchedule.next(cur, dst, ny)!!; check(x > cur, "monotonic across DST"); cur = x; count++ }
 
     widgetTests()
+    stepIntegrityTests()
+    musicWidgetTests()
     println("ALL $passed CHECKS PASSED")
+}
+
+fun stepIntegrityTests() {
+    val tz = TimeZone.getTimeZone("Asia/Kolkata")
+    fun at(h: Int, m: Int, d: Int = 16): Long { val c = Calendar.getInstance(tz); c.clear(); c.set(2026, 9, d, h, m, 0); return c.timeInMillis }
+    // stale / duplicate events must never be counted twice
+    val l = StepLedger()
+    l.onCounter(1000, at(9, 0), tz, 8000, boot = 5, tsNs = 100)
+    check(l.onCounter(1300, at(9, 5), tz, 8000, boot = 5, tsNs = 200) == 300L, "newer event adds the difference")
+    check(l.onCounter(1300, at(9, 6), tz, 8000, boot = 5, tsNs = 200) == 0L, "same event delivered twice is ignored")
+    check(l.onCounter(1100, at(9, 7), tz, 8000, boot = 5, tsNs = 150) == 0L, "an OLDER batched event arriving late is ignored (not mistaken for a reboot)")
+    check(l.today(at(9, 0), tz)!!.steps == 300L && l.lastRaw == 1300L, "baseline untouched by stale events")
+    // a count that goes down with the same boot id is a glitch, never negative, never a fake reboot
+    check(l.onCounter(900, at(9, 8), tz, 8000, boot = 5, tsNs = 300) == 0L, "decrease without reboot is ignored")
+    check(l.today(at(9, 0), tz)!!.steps == 300L, "no steps added by a glitch")
+    // reboot detected by boot id even when the new counter is HIGHER than the old baseline (old rule under-counted this)
+    check(l.onCounter(2500, at(18, 0), tz, 8000, boot = 6, tsNs = 50) == 2500L, "new boot id: everything since boot counts")
+    check(l.today(at(18, 0), tz)!!.partial, "a reboot flags the day incomplete")
+    check(l.onCounter(2600, at(18, 5), tz, 8000, boot = 6, tsNs = 90) == 100L, "after a reboot timestamps restart from the new boot")
+    // event time (not delivery time) decides the day: a batched event sampled at 23:59 but delivered at 00:10 belongs to the 16th
+    val m = StepLedger()
+    m.onCounter(0, at(23, 0), tz, 8000, boot = 1, tsNs = 10)
+    m.onCounter(400, at(23, 59), tz, 8000, boot = 1, tsNs = 20)     // sampled before midnight, delivered late
+    m.onCounter(450, at(0, 10, 17), tz, 8000, boot = 1, tsNs = 30)
+    check(m.days["2026-10-16"]!!.steps == 400L && m.days["2026-10-17"]!!.steps == 50L, "late batched event is credited to the day it happened")
+    // old callers (no boot / timestamp) behave exactly as before
+    val o = StepLedger(); o.onCounter(100, at(9, 0), tz, 8000)
+    check(o.onCounter(60, at(9, 1), tz, 8000) == 60L, "legacy reboot rule still works without a boot id")
 }
 
 fun widgetTests() {
@@ -110,4 +140,19 @@ fun widgetTests() {
     val gd = HeatGrid.build(dstDays, atNy(2026, 3, 9), ny, 3)   // Monday after spring-forward
     check(gd[1][6] == 4, "DST Sunday (Mar 8) sits in the last row of the previous week column")
     check(gd[2][0] == 0 && gd[2][1] == -1, "Monday Mar 9 is today (no data) and the rest of that week is future")
+}
+
+fun musicWidgetTests() {
+    fun v(access: Boolean = true, active: Boolean = true, playing: Boolean = true, title: String? = "Song", artist: String? = "Band", art: Boolean = true, dance: Boolean = true) =
+        MusicWidgetLogic.view(access, active, playing, title, artist, art, dance)
+    check(v().animate && v().mode == MusicMode.PLAYING, "dances while a session is playing and Dancing Cat Mode is on")
+    check(!v(playing = false).animate && v(playing = false).mode == MusicMode.PAUSED, "paused: no dancing")
+    check(!v(dance = false).animate, "Dancing Cat Mode off: static cat even while playing")
+    check(!v(active = false).animate && v(active = false).mode == MusicMode.IDLE && v(active = false).title == "Nothing playing", "no session: idle cat, honest text")
+    check(v(access = false).mode == MusicMode.NO_ACCESS && !v(access = false).animate && v(access = false).title.contains("notification access"), "no notification access: explains it, never animates")
+    check(v(access = false, playing = true, active = true).showArt.not(), "no art slot without access")
+    check(v(title = null).title == "Unknown track" && v(artist = "  ").artist == "Unknown artist", "missing metadata gets a plain fallback, not blank text")
+    check(v(art = false).showArt.not() && v(playing = false).showArt, "artwork slot only when artwork exists and a session is active")
+    check(v().sig == v().sig && v().sig != v(playing = false).sig && v().sig != v(title = "Other").sig, "signature changes only when the picture changes")
+    check(MusicWidgetLogic.view(true, true, true, "A", "B", true, true, artKey = 1).sig != MusicWidgetLogic.view(true, true, true, "A", "B", true, true, artKey = 2).sig, "a changed cover redraws the widget")
 }

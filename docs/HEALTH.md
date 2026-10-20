@@ -13,6 +13,14 @@ goals, history, the water log and preferences never leave the phone: no account,
 | Island | Display over other apps | from the Home setup card |
 No exact-alarm, accessibility, location or broad health-data permission is used.
 
+## Background step counting (locked phone, screen off, app closed)
+* **Hardware counter + batching:** one shared listener (never two) reads the cumulative step counter. Screen off = the sensor hub batches events for 5 minutes (near-zero battery); screen on = 30 s batches; walking mode = unbatched. No polling loops.
+* **Optional service:** with a step feature on and *Count steps in the background* on (Health tab), a small health-type foreground service (`StepService`, one silent notification) keeps the process alive so the listener keeps running and can react to: screen off (save), screen on, **phone unlocked (fresh reading + all widgets redrawn)**, date / time-zone / clock changes. Turn the switch off and it stops; totals then catch up about every 30 minutes and when you open the app.
+* **No duplicates:** readings are cumulative, so only the difference is added. Events carry the sensor timestamp: duplicates and older batched events arriving late are ignored. A count that goes *down* without a reboot is ignored (never negative, never a fake reboot). Reboots are detected with Android's boot counter, so a high count after a reboot is no longer under-counted (the day is flagged incomplete).
+* **Right day:** steps are credited to when they were sampled, not when they were delivered, so a batched event from 23:59 delivered at 00:10 stays on the previous day.
+* **Fallbacks if Android kills the service:** the hardware keeps counting; the next reading (alarm, unlock, app open, boot) adds everything since. Start-up after reboot is handled by the boot receiver. Force-stopping the app stops everything until it is opened again.
+* **Permissions:** Physical activity (`ACTIVITY_RECOGNITION`), requested only after the explanation when you switch a step feature on, plus the manifest-only `FOREGROUND_SERVICE_HEALTH` for the service on Android 14+. Nothing else.
+
 ## Steps: how it works
 * Uses the hardware **step counter** (cumulative since boot); falls back to the **step detector** (counted only while the island service runs, so those days are flagged incomplete). If the phone has neither, tracking is shown as unavailable and cannot be switched on.
 * The app stores a baseline of the last raw reading and adds only the difference. A reading lower than the baseline means a reboot: the new value is added and that day is flagged *incomplete* (steps between the last reading and the reboot cannot be recovered).

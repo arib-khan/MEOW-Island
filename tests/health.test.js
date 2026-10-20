@@ -67,3 +67,11 @@ test('config migration: new default position, drag setting removed, runs once', 
   const again = M.migrateConfig({ ...m, posArea: 'screen' }); assert.strictEqual(again.posArea, 'screen');
   assert.strictEqual(M.migrateConfig(undefined).posArea, 'statusbar');
 });
+
+test('background step counting: on by default but inert until a step feature is enabled, and persisted', () => {
+  const c = H.mergeHealth(undefined);
+  assert.strictEqual(c.backgroundSteps, true); assert.strictEqual(H.stepsNeeded(c), false);   // nothing starts by itself
+  const off = H.mergeHealth({ stepCounter: true, backgroundSteps: false });
+  assert.strictEqual(H.mergeHealth(JSON.parse(JSON.stringify(off))).backgroundSteps, false);
+  assert.strictEqual(H.mergeHealth({ backgroundSteps: 'yes' }).backgroundSteps, true);        // junk falls back to the default
+});

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/meow_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/meow_music_bg" android:orientation="horizontal" android:gravity="center_vertical" android:padding="10dp">
+    <FrameLayout android:layout_width="92dp" android:layout_height="92dp">
+        <ViewFlipper android:id="@+id/meow_cat_flip" android:layout_width="92dp" android:layout_height="92dp" android:flipInterval="170" android:autoStart="true">
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_0"/>
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_1"/>
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_2"/>
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_3"/>
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_4"/>
+            <ImageView android:layout_width="92dp" android:layout_height="92dp" android:scaleType="fitCenter" android:src="@drawable/meow_dance_5"/>
+        </ViewFlipper>
+    </FrameLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingStart="8dp" android:paddingEnd="4dp">
+        <TextView android:id="@+id/meow_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:singleLine="true" android:ellipsize="end"
+            android:textSize="15sp" android:textStyle="bold" android:textColor="#FFFFFF"/>
+        <TextView android:id="@+id/meow_artist" android:layout_width="match_parent" android:layout_height="wrap_content" android:singleLine="true" android:ellipsize="end"
+            android:textSize="12sp" android:textColor="#C9B6FF" android:layout_marginTop="1dp"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="7dp">
+            <ImageView android:id="@+id/meow_prev" android:layout_width="32dp" android:layout_height="32dp" android:padding="7dp" android:background="@drawable/meow_btn_bg" android:src="@drawable/ic_meow_prev" android:contentDescription="Previous track"/>
+            <ImageView android:id="@+id/meow_play" android:layout_width="38dp" android:layout_height="38dp" android:padding="8dp" android:layout_marginStart="6dp" android:background="@drawable/meow_btn_play_bg" android:src="@drawable/ic_meow_pause" android:contentDescription="Play or pause"/>
+            <ImageView android:id="@+id/meow_next" android:layout_width="32dp" android:layout_height="32dp" android:padding="7dp" android:layout_marginStart="6dp" android:background="@drawable/meow_btn_bg" android:src="@drawable/ic_meow_next" android:contentDescription="Next track"/>
+            <FrameLayout android:layout_width="58dp" android:layout_height="20dp" android:layout_marginStart="8dp">
+                <ViewFlipper android:id="@+id/meow_eq_flip" android:layout_width="58dp" android:layout_height="20dp" android:flipInterval="150" android:autoStart="true">
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_0"/>
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_1"/>
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_2"/>
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_3"/>
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_4"/>
+            <ImageView android:layout_width="58dp" android:layout_height="20dp" android:scaleType="fitCenter" android:src="@drawable/meow_eq_5"/>
+        </ViewFlipper>
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+    <ImageView android:id="@+id/meow_art" android:layout_width="44dp" android:layout_height="44dp" android:layout_marginStart="4dp" android:scaleType="centerCrop" android:visibility="gone" android:contentDescription="Album art"/>
+</LinearLayout>

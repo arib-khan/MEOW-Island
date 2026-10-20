@@ -40,7 +40,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     override fun getName() = "IslandModule"
 
     /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
-    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 6)
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 7)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -99,6 +99,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
         Cfg.write(ctx, json)
         IslandService.inst?.applyConfig()
         MediaListener.inst?.refresh()
+        MeowMusic.refresh(ctx, true)          // Dancing Cat Mode on/off takes effect immediately
     }
     @ReactMethod fun postActivity(id: String, priority: Int, title: String, sub: String, ttlMs: Double) {
         IslandBus.post(Act(id, priority, title, sub, expireAt = if (ttlMs > 0) System.currentTimeMillis() + ttlMs.toLong() else 0L, expand = true, pulse = System.currentTimeMillis()))
@@ -108,7 +109,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     /** Asks the launcher to pin a widget (Android 8+). Returns false when the launcher cannot, so the UI can explain the manual way. */
     @ReactMethod fun pinWidget(kind: String, p: Promise) {
         try {
-            val cls: Class<*> = when (kind) { "clock" -> MeowClockWidget::class.java; "round" -> MeowRoundClockWidget::class.java; "card" -> MeowStepCardWidget::class.java; else -> MeowHeatWidget::class.java }
+            val cls: Class<*> = when (kind) { "clock" -> MeowClockWidget::class.java; "round" -> MeowRoundClockWidget::class.java; "card" -> MeowStepCardWidget::class.java; "music" -> MeowMusicWidget::class.java; else -> MeowHeatWidget::class.java }
             val m = AppWidgetManager.getInstance(ctx)
             if (Build.VERSION.SDK_INT >= 26 && m.isRequestPinAppWidgetSupported) { m.requestPinAppWidget(ComponentName(ctx, cls), null, null); p.resolve(true) }
             else p.resolve(false)
