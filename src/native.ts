@@ -4,8 +4,36 @@ import { useCallback, useEffect, useState } from 'react';
 const N: any = NativeModules.IslandModule;
 export const available = !!N;
 /** False when the installed APK was built from older native code (e.g. prebuild --clean failed). */
-export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 7;
+export const nativeCurrent = !!N && (N.nativeVersion ?? 0) >= 8;
 export const events = N ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);
+
+const W: any = NativeModules.WellbeingModule;
+export const wellbeingAvailable = !!W;
+export type ShortsStatus = { serviceEnabled: boolean; serviceConnected: boolean; onFeed: boolean; app: string; shield: boolean; evals: number; matches: number; lastError: string; blockingConfigured: boolean; blockingActive: boolean; hasPin: boolean; shieldToday: number };
+export type AdultStatus = { enabled: boolean; running: boolean; permission: boolean; error: string; privateDns: string; otherVpn: boolean; blockedToday: number; blockedTotal: number; listUpdatedAt: number; listCount: number; listSource: string };
+/** Typed bridge to WellbeingModule.kt. Setters that can weaken protection reject with code PIN_REQUIRED / PIN_WRONG / PIN_LOCKED when a PIN is set. */
+export const wb = {
+  hasShortsGuard: (): Promise<boolean> => W.hasShortsGuard(),
+  requestShortsGuard: () => W.requestShortsGuard(),
+  getShortsConfig: (): Promise<string> => W.getShortsConfig(),
+  setShortsConfig: (json: string, pin?: string): Promise<string> => W.setShortsConfig(json, pin ?? null),
+  getShortsStatus: (): Promise<ShortsStatus> => W.getShortsStatus(),
+  getShortsStats: (): Promise<string> => W.getShortsStats(),
+  clearShortsStats: (): Promise<boolean> => W.clearShortsStats(),
+  getDiagnosticLog: (): Promise<string> => W.getDiagnosticLog(),
+  clearDiagnosticLog: (): Promise<boolean> => W.clearDiagnosticLog(),
+  hasPin: (): Promise<boolean> => W.hasPin(),
+  setPin: (pin: string, oldPin?: string): Promise<boolean> => W.setPin(pin, oldPin ?? null),
+  clearPin: (pin?: string): Promise<boolean> => W.clearPin(pin ?? null),
+  hasVpnPermission: (): Promise<boolean> => W.hasVpnPermission(),
+  requestVpnPermission: (): Promise<boolean> => W.requestVpnPermission(),
+  openVpnSettings: () => W.openVpnSettings(),
+  getAdultConfig: (): Promise<string> => W.getAdultConfig(),
+  setAdultConfig: (json: string, pin?: string): Promise<string> => W.setAdultConfig(json, pin ?? null),
+  getAdultStatus: (): Promise<AdultStatus> => W.getAdultStatus(),
+  updateAdultBlocklist: (url: string): Promise<number> => W.updateAdultBlocklist(url),
+};
+export const wbEvents = W ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);   // events are emitted through IslandModule
 
 export type AppInfo = { pkg: string; name: string; icon: string };
 export type TimerInfo = { id: string; label: string; endAt: number; notifId: string };

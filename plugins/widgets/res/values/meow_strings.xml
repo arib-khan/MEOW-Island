@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="meow_a11y_description">Lets Meow Island draw its floating island above the status bar. It does not read your screen, watch what you do, or collect any data.</string>
+    <string name="meow_guard_description">Optional. Lets Meow Island count Instagram Reels and YouTube Shorts and, if you turn it on, cover those two feeds with a block screen. It only looks inside Instagram and YouTube, only for the video-feed screen, and keeps nothing except your daily counts. It never reads messages, comments, passwords or anything you type, and sends nothing anywhere.</string>
 </resources>

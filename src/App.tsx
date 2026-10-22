@@ -12,7 +12,9 @@ import Home from './screens/Home';
 import Reminders from './screens/Reminders';
 import ScreenTime from './screens/ScreenTime';
 import Health from './screens/Health';
+import Wellbeing from './screens/Wellbeing';
 import Settings from './screens/Settings';
+import { WellbeingProvider } from './wellbeing';
 
 class Boundary extends React.Component<{ children: React.ReactNode }, { err?: Error }> {
   state: { err?: Error } = {};
@@ -24,7 +26,7 @@ class Boundary extends React.Component<{ children: React.ReactNode }, { err?: Er
   }
 }
 
-const TABS = [{ k: 'Home', i: '🐾' }, { k: 'Reminders', i: '⏰' }, { k: 'Screen Time', i: '⏳' }, { k: 'Health', i: '🚶' }, { k: 'Settings', i: '⚙️' }];
+const TABS = [{ k: 'Home', i: '🐾' }, { k: 'Reminders', i: '⏰' }, { k: 'Screen Time', i: '⏳' }, { k: 'Health', i: '🚶' }, { k: 'Wellbeing', i: '🛡️' }, { k: 'Settings', i: '⚙️' }];
 
 function Shell() {
   const [tab, setTab] = useState(0);
@@ -53,7 +55,8 @@ function Shell() {
           {tab === 1 && <Reminders />}
           {tab === 2 && <ScreenTime />}
           {tab === 3 && <Health />}
-          {tab === 4 && <Settings />}
+          {tab === 4 && <Wellbeing />}
+          {tab === 5 && <Settings />}
         </ScrollView>
       </Animated.View>
       <View style={{ flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: 8 }}>
@@ -84,7 +87,7 @@ function Root() {
   }, []);
   if (err) return <ScrollView style={{ flex: 1, backgroundColor: C.bg, padding: 20, paddingTop: 60 }}><H>Startup failed</H><ErrorBox text={err} /></ScrollView>;
   if (!ready) return <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center' }}><Loading label="Starting…" /></View>;
-  return <ConfigProvider><HealthProvider><Shell /></HealthProvider></ConfigProvider>;
+  return <ConfigProvider><HealthProvider><WellbeingProvider><Shell /></WellbeingProvider></HealthProvider></ConfigProvider>;
 }
 
 export default function App() {

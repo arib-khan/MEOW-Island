@@ -40,7 +40,7 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     override fun getName() = "IslandModule"
 
     /** Read synchronously from JS (NativeModules.IslandModule.nativeVersion) to detect a stale native build. */
-    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 7)
+    override fun getConstants(): Map<String, Any>? = mapOf("nativeVersion" to 8)
 
     @ReactMethod fun addListener(eventName: String) { }
     @ReactMethod fun removeListeners(count: Int) { }
@@ -194,6 +194,6 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
 }
 
 class IslandPackage : ReactPackage {
-    override fun createNativeModules(c: ReactApplicationContext): List<NativeModule> = listOf<NativeModule>(IslandModule(c))
+    override fun createNativeModules(c: ReactApplicationContext): List<NativeModule> = listOf<NativeModule>(IslandModule(c), WellbeingModule(c))
     override fun createViewManagers(c: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }

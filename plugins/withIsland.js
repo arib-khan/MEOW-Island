@@ -5,7 +5,7 @@ const PKG = 'com.smartisland.app';
 module.exports = (config) => {
   config = withAndroidManifest(config, (c) => {
     const m = c.modResults.manifest;
-    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION','FOREGROUND_SERVICE_HEALTH'];
+    const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION','FOREGROUND_SERVICE_HEALTH','INTERNET','ACCESS_NETWORK_STATE'];
     m['uses-permission'] = m['uses-permission'] || [];
     perms.forEach(p => { if (!m['uses-permission'].some(x => x.$['android:name']===`android.permission.${p}`)) m['uses-permission'].push({$:{'android:name':`android.permission.${p}`}}); });
     const app = m.application[0]; app.service = app.service || [];
@@ -23,6 +23,14 @@ module.exports = (config) => {
     app.service.push({ $: { 'android:name': '.MeowAccessibilityService', 'android:exported': 'true', 'android:label': 'Meow Island', 'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE' },
       'intent-filter': [{ action: [{ $: { 'android:name': 'android.accessibilityservice.AccessibilityService' } }] }],
       'meta-data': [{ $: { 'android:name': 'android.accessibilityservice', 'android:resource': '@xml/meow_accessibility_config' } }] });
+    // Optional Reels/Shorts counter + blocker. A SEPARATE accessibility service so the inert island service above keeps its promise.
+    app.service.push({ $: { 'android:name': '.ShortsGuardService', 'android:exported': 'true', 'android:label': 'Meow Island Reels & Shorts guard', 'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE' },
+      'intent-filter': [{ action: [{ $: { 'android:name': 'android.accessibilityservice.AccessibilityService' } }] }],
+      'meta-data': [{ $: { 'android:name': 'android.accessibilityservice', 'android:resource': '@xml/meow_shortsguard_config' } }] });
+    // Optional local DNS adult-website filter (VpnService). Runs as a special-use foreground service while active.
+    app.service.push({ $: { 'android:name': '.AdultFilterService', 'android:exported': 'true', 'android:foregroundServiceType': 'specialUse', 'android:permission': 'android.permission.BIND_VPN_SERVICE' },
+      'intent-filter': [{ action: [{ $: { 'android:name': 'android.net.VpnService' } }] }],
+      property: [{ $: { 'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE', 'android:value': 'local DNS filtering VPN' } }] });
     app.receiver = app.receiver || [];
     const widget = (cls, label, xml) => ({ $: { 'android:name': '.' + cls, 'android:exported': 'true', 'android:label': label },
       'intent-filter': [{ action: [{ $: { 'android:name': 'android.appwidget.action.APPWIDGET_UPDATE' } }] }],
@@ -35,7 +43,7 @@ module.exports = (config) => {
     app.receiver.push({ $: { 'android:name': '.MeowMusicActionReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.WaterReceiver', 'android:exported': 'false' } });
     app.receiver.push({ $: { 'android:name': '.HealthReceiver', 'android:exported': 'false' } });
-    app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }] }] });
+    app.receiver.push({ $: { 'android:name': '.BootReceiver', 'android:exported': 'true' }, 'intent-filter': [{ action: [{ $: { 'android:name': 'android.intent.action.BOOT_COMPLETED' } }, { $: { 'android:name': 'android.intent.action.MY_PACKAGE_REPLACED' } }] }] });
     return c;
   });
   // Branded launch window (dark background + cat logo) shown before React Native draws its first frame.
@@ -47,6 +55,9 @@ module.exports = (config) => {
     const copyDir = (from, to) => { fs.mkdirSync(to, { recursive: true }); for (const e of fs.readdirSync(from, { withFileTypes: true })) { const a = path.join(from, e.name), b = path.join(to, e.name); if (e.isDirectory()) copyDir(a, b); else fs.copyFileSync(a, b); } };
     const wres = path.join(c.modRequest.projectRoot, 'plugins/widgets/res');
     if (fs.existsSync(wres)) copyDir(wres, res);
+    // Bundled seed list for the adult-website filter (works offline; the in-app updater replaces it with a fresher file in app storage).
+    const aSrc = path.join(c.modRequest.projectRoot, 'plugins/assets');
+    if (fs.existsSync(aSrc)) copyDir(aSrc, path.join(c.modRequest.platformProjectRoot, 'app/src/main/assets'));
     const logo = path.join(c.modRequest.projectRoot, 'assets/splash-icon.png');
     if (fs.existsSync(logo)) fs.copyFileSync(logo, path.join(res, 'drawable-nodpi/meow_logo.png'));
     fs.writeFileSync(path.join(res, 'drawable/meow_splash.xml'),
