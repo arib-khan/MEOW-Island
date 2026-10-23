@@ -119,5 +119,13 @@ fun main() {
     val comp = query("x.y"); comp[12] = 0xC0.toByte(); check(DnsPacket.questionName(comp) == null, "compressed question rejected")
     val resp = query("x.y"); resp[2] = 0x81.toByte(); check(DnsPacket.questionName(resp) == null, "responses are not treated as queries")
     check((DnsPacket.truncated(ByteArray(300) { 1 }.also { query("x.y").copyInto(it) })[2].toInt() and 0x02) != 0, "truncation sets TC")
+    // ---------- Dancing Cat widget: progress + time ----------
+    check(MusicProgress.fmt(0) == "0:00" && MusicProgress.fmt(61_000) == "1:01" && MusicProgress.fmt(102_999) == "1:42" && MusicProgress.fmt(318_000) == "5:18", "m:ss labels (1:42 / 5:18 as in the design)")
+    check(MusicProgress.fmt(3_725_000) == "1:02:05" && MusicProgress.fmt(-5) == "0:00", "hours, negatives")
+    check(MusicProgress.now(100_000, 1_000, true, 4_000, 318_000) == 103_000L, "playing: position keeps counting since it was reported")
+    check(MusicProgress.now(100_000, 1_000, false, 90_000, 318_000) == 100_000L, "paused: position frozen")
+    check(MusicProgress.now(317_000, 0, true, 999_999, 318_000) == 317_000L && MusicProgress.now(317_000, 1, true, 99_999_999, 318_000) == 318_000L, "never past the end")
+    check(Math.abs(MusicProgress.fraction(102_000, 318_000) - 0.3208f) < 0.001f && MusicProgress.fraction(5, 0) == 0f && MusicProgress.fraction(9, 3) == 1f, "fraction")
+    check(MusicProgress.hasProgress(true, 0, 1000) && !MusicProgress.hasProgress(true, -1, 1000) && !MusicProgress.hasProgress(true, 5, 0) && !MusicProgress.hasProgress(false, 5, 1000), "bar hidden for live streams / no session")
     println("Kotlin logic tests: $passed checks passed")
 }

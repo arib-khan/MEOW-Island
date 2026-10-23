@@ -108,6 +108,7 @@ class MediaListener : NotificationListenerService() {
         snap["active"] = true; snap["title"] = title; snap["artist"] = artist; snap["playing"] = playing
         snap["position"] = pos.toDouble()
         snap["duration"] = dur.toDouble()
+        snap["posAt"] = System.currentTimeMillis().toDouble()      // when `position` was true, so the widget can keep counting
         snap["canNext"] = canNext; snap["canPrev"] = canPrev
         snap["art"] = if (small != null) Img.b64(small, false) else ""
         snap["app"] = c.packageName ?: ""
