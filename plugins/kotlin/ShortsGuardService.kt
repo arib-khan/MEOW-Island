@@ -80,6 +80,21 @@ class ShortsGuardService : AccessibilityService() {
     private var evals = 0
     private var matches = 0
     private var signatureWarned = false
+    private val swipe =
+            SwipeCounter(
+                    quietMs = 800
+            ) // long enough for the page-key path (below) to count first, so a swipe is never
+    // counted twice
+    private var ytFirst = false
+    private var ytFirstAt = 0L
+    private var ytMode =
+            0 // how Shorts are told apart: 1 = list position, 2 = the Short's own text, 0 = nothing
+    // usable
+    private val ytRows = HashSet<Int>()
+    private var ytScrollSeen = false
+    private var lastScrollEventAt = 0L
+    private var lastRecordAt = 0L
+    private var feedEnterAt = 0L
 
     private var pill: LinearLayout? = null
     private var pillEmoji: TextView? = null
@@ -93,6 +108,7 @@ class ShortsGuardService : AccessibilityService() {
         evaluate()
     }
     private val escapeRun = Runnable { if (onFeed && shield != null) escapeStep(true) }
+    private val settleRun = Runnable { settleSwipe() }
     private val milestoneRun = Runnable { updatePillText() }
 
     // ------------------------------------------------------------------ lifecycle
@@ -196,8 +212,10 @@ class ShortsGuardService : AccessibilityService() {
             return
         }
         if (!cfg.counts(app) && !cfg.blocks(app)) return
-        if (e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)
-                scrollSeen = System.currentTimeMillis()
+        if (e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            scrollSeen = System.currentTimeMillis()
+            if (app == ShortsApp.YT) onYoutubeScroll(e)
+        }
         scheduleEval(0)
     }
 
@@ -241,10 +259,42 @@ class ShortsGuardService : AccessibilityService() {
                 return
             }
             evals++
-            val det = ShortsDetector.detect(pkg, realHeight() / 2) { id -> nodes(root, pkg, id) }
+            var det = ShortsDetector.detect(pkg, realHeight() / 2) { id -> nodes(root, pkg, id) }
+            if (det.onFeed && det.app == ShortsApp.YT) {
+                // YouTube's text-based fingerprint is not per-Short (it describes the player's
+                // state), so identify the page itself.
+                val pk =
+                        try {
+                            youtubePageKey(root, pkg, realHeight() / 2)
+                        } catch (x: Exception) {
+                            null
+                        }
+                val mode = pk?.mode ?: 0
+                if (mode != ytMode) {
+                    ytMode = mode
+                    WellbeingStore.log(
+                            this,
+                            "yt page key: " +
+                                    (if (mode == 1) "list position"
+                                    else if (mode == 2) "page text" else "none")
+                    )
+                }
+                if (pk != null) {
+                    if (pk.row >= 0) ytRows.add(pk.row)
+                    det = Detection(det.app, true, pk.key, det.matched)
+                }
+            }
             if (det.onFeed) {
                 matches++
                 onDetection(det)
+            } else if (onFeed &&
+                            curApp == ShortsApp.YT &&
+                            System.currentTimeMillis() - lastScrollEventAt < 4000
+            ) {
+                misses = 0
+                scheduleEval(
+                        1000
+                ) // the Shorts pager was scrolling a moment ago: keep the feed "on"
             } else if (onFeed) {
                 misses++
                 if (misses >= 2) leaveFeed("feed gone")
@@ -256,6 +306,69 @@ class ShortsGuardService : AccessibilityService() {
         } finally {
             rec(root)
         }
+    }
+
+    private class PageKey(val mode: Int, val key: String, val row: Int)
+
+    /**
+     * Identity of the Short that is on screen: (1) its position in YouTube's own vertical list
+     * (accessibility collection info of the page, which changes by exactly one per swipe and does
+     * not depend on what the player is doing), else (2) a hash of the longer texts inside that one
+     * page (title, channel, counters; short labels and player-state words are ignored).
+     */
+    private fun youtubePageKey(root: AccessibilityNodeInfo, pkg: String, centerY: Int): PageKey? {
+        var page: AccessibilityNodeInfo? = null
+        for (id in listOf("reel_player_page_container", "reel_recycler")) {
+            val found = root.findAccessibilityNodeInfosByViewId("$pkg:id/$id") ?: continue
+            for (n in found) {
+                if (!n.isVisibleToUser) continue
+                if (id == "reel_recycler"
+                ) { // the list itself: take its child that covers the middle of the screen
+                    for (i in 0 until n.childCount) {
+                        val c = n.getChild(i) ?: continue
+                        val r = Rect()
+                        c.getBoundsInScreen(r)
+                        if (c.isVisibleToUser && r.top <= centerY && centerY <= r.bottom) {
+                            page = c
+                            break
+                        }
+                    }
+                } else {
+                    val r = Rect()
+                    n.getBoundsInScreen(r)
+                    if (r.top <= centerY && centerY <= r.bottom) page = n
+                }
+                if (page != null) break
+            }
+            if (page != null) break
+        }
+        val p = page ?: return null
+        var x: AccessibilityNodeInfo? = p
+        var depth = 0
+        while (x != null && depth < 4) {
+            val ci = x.collectionItemInfo
+            if (ci != null && ci.rowIndex >= 0) return PageKey(1, "r" + ci.rowIndex, ci.rowIndex)
+            x = x.parent
+            depth++
+        }
+        val texts = java.util.TreeSet<String>()
+        val queue = java.util.ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(p)
+        var seen = 0
+        val dynamic =
+                Regex("(?i)(\\d{1,2}:\\d{2}|seconds?|pause|play|mute|buffer|loading|progress)")
+        while (queue.isNotEmpty() && seen < 150) {
+            val n = queue.poll() ?: break
+            seen++
+            for (t in listOf(n.text?.toString(), n.contentDescription?.toString())) if (t != null &&
+                            t.length >= 8 &&
+                            !dynamic.containsMatchIn(t)
+            )
+                    texts.add(t.take(120))
+            for (i in 0 until n.childCount) n.getChild(i)?.let { queue.add(it) }
+        }
+        return if (texts.isEmpty()) null
+        else PageKey(2, "t" + ShortsDetector.stableHash(texts.joinToString("|")), -1)
     }
 
     private fun nodes(root: AccessibilityNodeInfo, pkg: String, id: String): List<NodeInfo> {
@@ -288,6 +401,7 @@ class ShortsGuardService : AccessibilityService() {
             onFeed = true
             curApp = app
             signatureWarned = false
+            feedEnterAt = now
             if (counters[app] == null) counters[app] = ShortsCounter()
             WellbeingStore.log(this, "enter $app via ${det.matched}")
             IslandModule.emit("shortsState", mapOf("onFeed" to true, "app" to app))
@@ -312,6 +426,30 @@ class ShortsGuardService : AccessibilityService() {
         }
         val ctr = counters[app] ?: return
         var counted = ctr.observe(det.sig, now)
+        if (app == ShortsApp.YT) {
+            swipe.noteSig(det.sig, now)
+            if (counted && ytFirst) {
+                if (ytMode != 1 && now - ytFirstAt < 2500)
+                        counted =
+                                false // loading / play-state changes right after opening are not a
+                // new Short
+                else if (ytMode == 0)
+                        counted =
+                                false // nothing identifies a page: later Shorts come from the swipe
+                // path
+                else if (ytMode == 2 && ytScrollSeen && now - lastScrollEventAt > 2500)
+                        counted = false // text alone must be backed by a scroll
+            }
+            if (counted)
+                    WellbeingStore.log(
+                            this,
+                            "yt counted: key=" +
+                                    (if (ytMode == 1) "position"
+                                    else if (ytMode == 2) "text" else "none") +
+                                    " positionsSeen=" +
+                                    ytRows.size
+                    )
+        }
         var approx = false
         if (det.sig == null) {
             noSig++
@@ -335,6 +473,12 @@ class ShortsGuardService : AccessibilityService() {
 
     private fun leaveFeed(reason: String) {
         h.removeCallbacks(escapeRun)
+        h.removeCallbacks(settleRun)
+        swipe.exit()
+        ytFirst = false
+        ytMode = 0
+        ytRows.clear()
+        ytScrollSeen = false
         if (onFeed) {
             WellbeingStore.log(this, "leave $curApp ($reason)")
             counters[curApp ?: ""]?.exit()
@@ -351,8 +495,112 @@ class ShortsGuardService : AccessibilityService() {
         removePillView()
     }
 
+    // ------------------------------------------------------------------ YouTube Shorts: count
+    // swipes
+    /**
+     * Scroll events of the Shorts pager (not of comments, descriptions or other lists, whose view
+     * ids do not mention reel/shorts).
+     */
+    private fun onYoutubeScroll(e: AccessibilityEvent) {
+        if (!cfg.counts(ShortsApp.YT)) return
+        val src =
+                try {
+                    e.source
+                } catch (x: Exception) {
+                    null
+                }
+        var id: String? = null
+        if (src != null) {
+            id = src.viewIdResourceName
+            rec(src)
+        }
+        if (id != null && !(id.contains("reel") || id.contains("shorts")))
+                return // comments, description, other lists
+        val now = System.currentTimeMillis()
+        lastScrollEventAt = now
+        ytScrollSeen = true
+        if (!onFeed || curApp != ShortsApp.YT) {
+            // The Shorts pager itself is scrolling, so we ARE on the feed even if the tree lookup
+            // missed it a moment ago.
+            if (id == null ||
+                            ShortsPolicy.shouldBlock(
+                                    ShortsApp.YT,
+                                    cfg.blockIg,
+                                    cfg.blockYt,
+                                    cfg.strict,
+                                    snoozeUntil,
+                                    now
+                            )
+            )
+                    return
+            onDetection(Detection(ShortsApp.YT, true, null, "scroll-event"))
+            if (!onFeed) return
+        }
+        if (!swipe.burstOpen)
+                WellbeingStore.log(
+                        this,
+                        "yt scroll src=" +
+                                (id ?: "?").substringAfter(":id/") +
+                                " items=" +
+                                e.itemCount +
+                                " from=" +
+                                e.fromIndex +
+                                " y=" +
+                                e.scrollY
+                )
+        swipe.onScroll(now, if (e.itemCount > 0 && e.fromIndex >= 0) e.fromIndex else -1)
+        h.removeCallbacks(settleRun)
+        h.postDelayed(settleRun, 830)
+    }
+
+    private fun settleSwipe() {
+        if (!onFeed || curApp != ShortsApp.YT) return
+        val now = System.currentTimeMillis()
+        if (now - lastScrollEventAt < 800) {
+            h.postDelayed(settleRun, 820 - (now - lastScrollEventAt))
+            return
+        }
+        if (ShortsPolicy.shouldBlock(
+                        ShortsApp.YT,
+                        cfg.blockIg,
+                        cfg.blockYt,
+                        cfg.strict,
+                        snoozeUntil,
+                        now
+                )
+        )
+                return
+        evaluate() // refresh the item signature first so "moved / came back" evidence is current
+        if (!onFeed || curApp != ShortsApp.YT) return
+        val r = swipe.settle(System.currentTimeMillis())
+        val trusted =
+                ytMode == 1 &&
+                        ytRows.size >=
+                                2 // list positions are changing: they count swipes exactly, this
+        // path is only a safety net
+        val already =
+                lastRecordAt >= swipe.burstStartAt - 100 // another path already counted this swipe
+        if (r != SwipeCounter.NONE && (trusted || already || now - feedEnterAt < 1500)) {
+            WellbeingStore.log(
+                    this,
+                    "yt swipe ignored: " +
+                            (if (trusted) "positions trusted"
+                            else if (already) "already counted" else "just opened")
+            )
+        } else if (r != SwipeCounter.NONE) {
+            WellbeingStore.log(this, "yt swipe " + swipe.note)
+            record(ShortsApp.YT, r == SwipeCounter.APPROX)
+            showPill(ShortsApp.YT)
+        } else WellbeingStore.log(this, "yt swipe " + swipe.note)
+    }
+
     // ------------------------------------------------------------------ counting
     private fun record(app: String, approx: Boolean) {
+        if (app == ShortsApp.YT) {
+            if (!ytFirst) ytFirstAt = System.currentTimeMillis()
+            ytFirst = true
+        }
+        lastRecordAt = System.currentTimeMillis()
         val before = WellbeingStore.today(this)
         val after = WellbeingStore.addCount(this, app, approx)
         val prevTotal = before[0] + before[1]

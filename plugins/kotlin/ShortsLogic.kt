@@ -112,6 +112,69 @@ class ShortsCounter(private val settleMs: Long = 300, private val memoryMs: Long
     }
 }
 
+/**
+ * Counts swipes in a vertical Shorts pager from its scroll events, for apps whose on-screen text does not reliably change per item
+ * (YouTube Shorts). A burst of scroll events that goes quiet for [quietMs] is one swipe and is counted. The page index
+ * (AccessibilityEvent.fromIndex) is used only to DROP a swipe, and only after it has proven itself: two forward swipes in a row
+ * that each moved it by exactly +1. Item text is never used to drop a swipe (it can lag a swipe behind, which looked like "seen before").
+ * If a proven index stops moving, it is distrusted again and swipes count approximately ("≈" in the dashboard).
+ */
+class SwipeCounter(private val quietMs: Long = 450, private val memoryMs: Long = 90_000) {
+    companion object { const val NONE = 0; const val EXACT = 1; const val APPROX = 2 }
+    private class Seen(val key: String, var at: Long)
+    private val recent = ArrayList<Seen>()
+    private var open = false; private var lastScrollAt = 0L; private var events = 0; private var idx = -1
+    private var settledIdx = -1; private var settledSig: String? = null; private var latestSig: String? = null
+    private var fwd = 0; private var stuck = 0
+    val lastEventAt: Long get() = lastScrollAt
+    /** When the current / last burst began (so a count made by another path since then can be recognised). */
+    var burstStartAt = 0L; private set
+    val burstOpen: Boolean get() = open
+    /** Why the last settle decided what it did (goes to the diagnostic log; contains no user content). */
+    var note = ""; private set
+
+    private fun seen(k: String, now: Long): Boolean { recent.removeAll { now - it.at > memoryMs }; return recent.any { it.key == k } }
+    private fun remember(k: String, now: Long) { recent.removeAll { it.key == k }; recent.add(Seen(k, now)); while (recent.size > 24) recent.removeAt(0) }
+
+    fun noteSig(sig: String?, now: Long) {
+        if (sig == null) return
+        latestSig = sig
+        if (settledSig == null) settledSig = sig
+    }
+
+    fun onScroll(now: Long, index: Int) {
+        if (!open || now - lastScrollAt > 1500) { open = true; events = 0; idx = -1; burstStartAt = now }
+        events++; lastScrollAt = now
+        if (index >= 0) idx = index
+    }
+
+    /** @return NONE / EXACT / APPROX once the burst has been quiet for [quietMs]; NONE while it is still going. */
+    fun settle(now: Long): Int {
+        if (!open || now - lastScrollAt < quietMs) return NONE
+        open = false
+        val sig = latestSig
+        val known = idx >= 0 && settledIdx >= 0
+        val reliable = fwd >= 2
+        val sigMoved = sig != null && settledSig != null && sig != settledSig
+        val r: Int
+        if (events < 1) r = NONE
+        else if (known && reliable) {
+            if (idx > settledIdx) { r = EXACT; stuck = 0 }
+            else if (idx == settledIdx) { stuck++; if (stuck >= 2) { fwd = 0; stuck = 0; r = APPROX } else r = NONE }
+            else r = if (seen("i$idx", now)) NONE else EXACT
+        } else r = if ((known && idx != settledIdx) || sigMoved) EXACT else APPROX
+        note = "events=$events idx=$idx prevIdx=$settledIdx reliable=$reliable sigMoved=$sigMoved -> " + (if (r == NONE) "not counted" else if (r == EXACT) "counted" else "counted approx")
+        if (idx >= 0) {
+            if (settledIdx >= 0) { if (idx == settledIdx + 1) fwd++ else if (idx != settledIdx) fwd = 0 }
+            remember("i$idx", now); settledIdx = idx
+        }
+        if (sig != null) settledSig = sig
+        return r
+    }
+
+    fun exit() { open = false; events = 0; idx = -1; settledIdx = -1; settledSig = null; latestSig = null; fwd = 0; stuck = 0 }
+}
+
 data class Tier(val min: Int, val emoji: String, val text: String)
 
 object Milestones {

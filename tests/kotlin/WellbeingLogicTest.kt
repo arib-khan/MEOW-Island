@@ -119,6 +119,43 @@ fun main() {
     val comp = query("x.y"); comp[12] = 0xC0.toByte(); check(DnsPacket.questionName(comp) == null, "compressed question rejected")
     val resp = query("x.y"); resp[2] = 0x81.toByte(); check(DnsPacket.questionName(resp) == null, "responses are not treated as queries")
     check((DnsPacket.truncated(ByteArray(300) { 1 }.also { query("x.y").copyInto(it) })[2].toInt() and 0x02) != 0, "truncation sets TC")
+    // ---------- YouTube Shorts: swipe counting ----------
+    fun burst(sc: SwipeCounter, start: Long, idx: Int, n: Int = 4): Long { var x = start; repeat(n) { sc.onScroll(x, idx); x += 90 }; return x }
+    var sw = SwipeCounter()
+    sw.noteSig("A", 0)
+    var bt = burst(sw, 5_000, -1)
+    check(sw.settle(bt) == SwipeCounter.NONE, "not settled while the burst has just ended")
+    check(sw.settle(bt + 500) == SwipeCounter.APPROX, "swipe with no index and an unchanged tree still counts (approximate)")
+    check(sw.settle(bt + 900) == SwipeCounter.NONE, "one swipe is counted once")
+    // the reported bug: counted twice, then never again. Text that lags or flips between already-seen values must not stop counting.
+    sw = SwipeCounter(); sw.noteSig("A", 0); var swc = 0; bt = 1_000L
+    val lagging = listOf("A", "B", "A", "B", "A", "B", "A", "C", "A", "B")
+    for (i in 0 until 10) { sw.noteSig(lagging[i], bt); bt = burst(sw, bt, -1); if (sw.settle(bt + 500) != SwipeCounter.NONE) swc++; bt += 2_000 }
+    check(swc == 10, "ten swipes with lagging / flipping item text = ten counts (got $swc)")
+    sw = SwipeCounter(); sw.noteSig("A", 0); swc = 0; bt = 1_000L
+    for (i in 1..10) { bt = burst(sw, bt, i); if (sw.settle(bt + 500) != SwipeCounter.NONE) swc++; bt += 2_000 }
+    check(swc == 10, "ten swipes with an advancing page index and a stale tree = ten counts (got $swc)")
+    // proven index: forward +1 twice, then swiping back / bouncing is not counted
+    fun reliable(): SwipeCounter { val c = SwipeCounter(); var x = 0L; for (i in 3..6) { x = burst(c, 1_000L * i, i); c.settle(x + 500) }; return c }
+    sw = reliable(); bt = burst(sw, 20_000, 7); check(sw.settle(bt + 500) == SwipeCounter.EXACT, "reliable index, forward -> counted")
+    sw = reliable(); bt = burst(sw, 30_000, 5); check(sw.settle(bt + 500) == SwipeCounter.NONE, "reliable index, back to a seen page -> not counted")
+    sw = reliable(); bt = burst(sw, 40_000, 6); check(sw.settle(bt + 500) == SwipeCounter.NONE, "reliable index, no movement -> bounce, not counted")
+    bt = burst(sw, 50_000, 6); check(sw.settle(bt + 500) == SwipeCounter.APPROX, "index stuck twice -> distrusted, swipes count approximately again")
+    bt = burst(sw, 60_000, 6); check(sw.settle(bt + 500) == SwipeCounter.APPROX, "...and keep counting afterwards")
+    // an index that just flips between two values never becomes 'reliable', so nothing is dropped
+    sw = SwipeCounter(); swc = 0; bt = 1_000L
+    for (i in 0 until 8) { bt = burst(sw, bt, i % 2); if (sw.settle(bt + 500) != SwipeCounter.NONE) swc++; bt += 2_000 }
+    check(swc >= 7, "flipping index does not lose swipes (got $swc)")
+    sw = SwipeCounter(); sw.noteSig("A", 0); sw.onScroll(1_000, -1)
+    check(sw.settle(900) == SwipeCounter.NONE, "not quiet yet: a swipe is still in progress")
+    sw = SwipeCounter(); sw.noteSig("A", 0); bt = burst(sw, 1_000, -1); sw.settle(bt + 500); sw.exit(); sw.noteSig("A", 200_000); bt = burst(sw, 201_000, -1)
+    check(sw.settle(bt + 500) == SwipeCounter.APPROX, "after leaving the feed the tracker starts fresh")
+    check(sw.note.contains("counted approx"), "decision note explains itself for the diagnostic log")
+
+    // burst start is exposed so another counting path can be recognised
+    sw = SwipeCounter(); sw.onScroll(7_000, -1); sw.onScroll(7_090, -1)
+    check(sw.burstStartAt == 7_000L, "burst start is the first event of the burst")
+
     // ---------- Dancing Cat widget: progress + time ----------
     check(MusicProgress.fmt(0) == "0:00" && MusicProgress.fmt(61_000) == "1:01" && MusicProgress.fmt(102_999) == "1:42" && MusicProgress.fmt(318_000) == "5:18", "m:ss labels (1:42 / 5:18 as in the design)")
     check(MusicProgress.fmt(3_725_000) == "1:02:05" && MusicProgress.fmt(-5) == "0:00", "hours, negatives")
