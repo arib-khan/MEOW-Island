@@ -30,7 +30,7 @@ export default function Footer() {
           <ul className="space-y-2 text-mist">
             <li><Link className="hover:text-white" href="/privacy">Privacy Policy</Link></li>
             <li><Link className="hover:text-white" href="/terms">Terms of Use</Link></li>
-            <li><a className="hover:text-white" href={SITE.license} target="_blank" rel="noopener noreferrer">MIT License</a></li>
+            <li><a className="hover:text-white" href={SITE.license} target="_blank" rel="noopener noreferrer">PolyForm Noncommercial License</a></li>
           </ul>
         </nav>
       </div>

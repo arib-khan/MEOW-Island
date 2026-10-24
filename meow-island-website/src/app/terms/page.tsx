@@ -34,10 +34,10 @@ export default function TermsPage() {
       <p>Use the app lawfully and sensibly. Do not rely on a reminder or timer for anything safety-critical, such as medication, driving or emergencies. Install builds only from sources you trust, since notification and usage access are powerful permissions.</p>
 
       <h2>7. Open-source licensing</h2>
-      <p>The app&rsquo;s source code is released under the <a href={SITE.license} target="_blank" rel="noopener noreferrer">MIT License</a>, copyright {SITE.author}. The license text in the repository governs your rights to use, copy, modify and distribute the code. The name and the cat artwork on this site are not given any separate license, so please ask via an issue if you want to reuse them.</p>
+      <p>The app&rsquo;s source code is released under the <a href={SITE.license} target="_blank" rel="noopener noreferrer">PolyForm Noncommercial License 1.0.0</a>, copyright {SITE.author}. You may use, modify and share it for non-commercial purposes only; commercial use needs a separate written licence from the author. The license text in the repository governs your rights. The name and the cat artwork on this site are not given any separate license, so please ask via an issue if you want to reuse them.</p>
 
       <h2>8. Service availability and disclaimers</h2>
-      <p>The app and this website are provided &ldquo;as is&rdquo;, without warranty of any kind, as set out in the MIT License. There is no guaranteed uptime, support or fixes. To the extent the law allows, the author is not liable for losses arising from using the app or the site, including missed reminders or inaccurate counts. Nothing here limits rights you have by law that cannot be waived.</p>
+      <p>The app and this website are provided &ldquo;as is&rdquo;, without warranty of any kind, as set out in the project license. There is no guaranteed uptime, support or fixes. To the extent the law allows, the author is not liable for losses arising from using the app or the site, including missed reminders or inaccurate counts. Nothing here limits rights you have by law that cannot be waived.</p>
       <p>MEOW Island is not affiliated with Google, Android, or any music, health or social-media service. Product names belong to their owners.</p>
 
       <h2>9. Changes to the terms</h2>

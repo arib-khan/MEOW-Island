@@ -208,7 +208,9 @@ Meow Island is at a **very early stage**, and there is a lot left to improve.
 
 ## 📄 License
 
-Meow Island is released under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software, subject to the license terms. See the [`LICENSE`](LICENSE) file for the complete text.
+Meow Island is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify and share it for **non-commercial purposes** (personal use, learning, research, hobby projects, and use by charitable, educational or public-safety organisations). **Commercial use is not permitted** without a separate written licence from the author. See the [`LICENSE`](LICENSE) file for the complete text and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for third-party material that keeps its own licence.
+
+Versions of Meow Island that were already published under the MIT License before this change remain available under the MIT License to those who received them; this licence applies to the project from now on.
 
 ---
 

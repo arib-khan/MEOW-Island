@@ -1,6 +1,7 @@
 {
   "name": "meow-island",
   "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "index.js",
   "scripts": {
     "prebuild": "expo prebuild --platform android",
