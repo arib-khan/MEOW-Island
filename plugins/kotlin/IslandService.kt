@@ -288,6 +288,7 @@ class IslandService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        try { DeviceLink.ensureStarted(this) } catch (e: Exception) { }      // keeps a paired Meow Island display in sync while the island runs
         try {
             startAsForeground()  // must happen first, Android kills the app if it is late
             if (inst != null) { stopSelf(); return }  // never two overlays

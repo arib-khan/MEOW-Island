@@ -13,6 +13,7 @@ class BootReceiver : BroadcastReceiver() {
         if (i.action != Intent.ACTION_BOOT_COMPLETED && i.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         // Adult-website filter: restart only if the user enabled it AND Android's VPN consent is still granted (never prompts here).
         try { if (WellbeingStore.adultEnabled(ctx) && VpnService.prepare(ctx) == null) AdultFilterService.start(ctx) } catch (e: Exception) { }
+        try { DeviceLink.ensureStarted(ctx) } catch (e: Exception) { }      // reconnect to a paired Meow Island display, if any
         if (i.action != Intent.ACTION_BOOT_COMPLETED) return
         try { HealthEngine.configure(ctx); Water.arm(ctx) } catch (e: Exception) { }
         if (!ctx.getSharedPreferences("island", 0).getBoolean("autostart", false)) return

@@ -46,6 +46,7 @@ class MediaListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        try { DeviceLink.ensureStarted(this) } catch (e: Exception) { }    // this service stays alive in the background: keeps the Meow Island display in sync
         inst = this
         try {
             val m = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager

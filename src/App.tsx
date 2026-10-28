@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StatusBar, Text, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Battery from 'expo-battery';
-import { available, nativeCurrent, native } from './native';
+import { available, nativeCurrent, native, dev } from './native';
 import { initDb } from './core/db';
 import { setupReminderActions, snooze } from './core/reminders';
 import { ConfigProvider } from './config';
@@ -13,6 +13,7 @@ import Reminders from './screens/Reminders';
 import ScreenTime from './screens/ScreenTime';
 import Health from './screens/Health';
 import Wellbeing from './screens/Wellbeing';
+import Device from './screens/Device';
 import Settings from './screens/Settings';
 import { WellbeingProvider } from './wellbeing';
 
@@ -39,6 +40,7 @@ function Shell() {
   };
 
   useEffect(() => {
+    dev.start();                      // reconnect a paired Meow Island display (does nothing if none is paired)
     const rec = Notifications.addNotificationReceivedListener((n) => native.postActivity('reminder', 90, '⏰ ' + (n.request.content.body ?? 'Reminder'), 'Reminder', 15000));
     const resp = Notifications.addNotificationResponseReceivedListener((r) => { if (r.actionIdentifier === 'snooze') snooze(r.notification.request.content.body ?? 'Reminder'); });
     Battery.getBatteryLevelAsync().then((l) => { if (l > 0 && l < 0.15) native.postActivity('battery', 40, `🔋 ${Math.round(l * 100)}%`, 'Low battery', 6000); }).catch(() => {});
@@ -56,7 +58,8 @@ function Shell() {
           {tab === 2 && <ScreenTime />}
           {tab === 3 && <Health />}
           {tab === 4 && <Wellbeing />}
-          {tab === 5 && <Settings />}
+          {tab === 5 && <Settings openDevice={() => go(6)} />}
+          {tab === 6 && <Device back={() => go(5)} />}
         </ScrollView>
       </Animated.View>
       <View style={{ flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: 8 }}>

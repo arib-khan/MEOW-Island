@@ -103,10 +103,8 @@ object MeowWidgets {
         if (id == 0) null else BitmapFactory.decodeResource(ctx.resources, id, BitmapFactory.Options().also { it.inScaled = false })
     } catch (e: Exception) { null }
 
-    /** Real values only. Nothing is shown unless the matching Health features are on; adding the widget never enables tracking. */
-    fun stepCard(ctx: Context, m: AppWidgetManager, id: Int): RemoteViews {
-        val v = RemoteViews(ctx.packageName, rid(ctx, "layout", "meow_widget_stepcard"))
-        v.setOnClickPendingIntent(rid(ctx, "id", "meow_root"), open(ctx))
+    /** The step card's data, built in one place: used by the home-screen widget and by the Meow Island TFT device. */
+    fun stepCardData(ctx: Context): StepCardData {
         val c = HealthEngine.cfg(ctx)
         val stepsOn = c.optBoolean("stepCounter"); val goalOn = c.optBoolean("goalEnabled"); val heatOn = c.optBoolean("heatmap")
         val rec = if (stepsOn) HealthEngine.todayRec(ctx) else null
@@ -122,6 +120,15 @@ object MeowWidgets {
         val subtitle = if (reached) "Goal reached!" else if (goalOn && has) "Keep moving" else "Every step counts"
         val levels = if (heatOn) HealthEngine.recentLevels(ctx, StepCardRenderer.CELLS) else IntArray(StepCardRenderer.CELLS)
         val data = StepCardData(steps, goal, has, goalOn, heatOn, levels, label, hint, subtitle, reached)
+        return data
+    }
+
+    /** Real values only. Nothing is shown unless the matching Health features are on; adding the widget never enables tracking. */
+    fun stepCard(ctx: Context, m: AppWidgetManager, id: Int): RemoteViews {
+        val v = RemoteViews(ctx.packageName, rid(ctx, "layout", "meow_widget_stepcard"))
+        v.setOnClickPendingIntent(rid(ctx, "id", "meow_root"), open(ctx))
+        val data = stepCardData(ctx)
+        val has = data.hasSteps; val reached = data.happy; val label = data.label; val steps = data.steps; val goal = data.goal; val goalOn = data.goalOn
 
         val o = m.getAppWidgetOptions(id)
         val dens = ctx.resources.displayMetrics.density

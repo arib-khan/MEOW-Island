@@ -61,7 +61,7 @@ function PositionEditor({ cfg, update }: { cfg: Config; update: (p: Partial<Conf
   );
 }
 
-export default function Settings() {
+export default function Settings({ openDevice }: { openDevice?: () => void } = {}) {
   const { cfg, update, reset } = useConfig();
   const p = usePerms();
   const pct = (v: number) => Math.round(v * 100);
@@ -89,6 +89,13 @@ export default function Settings() {
 
   return (
     <View>
+      {openDevice && (
+        <Card>
+          <H>Meow Island Device</H>
+          <Sub>Pair the Meow Island ESP32 display to show your clock, steps and music on it.</Sub>
+          <View style={{ marginTop: 10, alignSelf: 'flex-start' }}><Btn small title="Open device settings" onPress={openDevice} /></View>
+        </Card>
+      )}
       <Card>
         <H>Home screen widgets</H>
         <Sub>Put Meow Island on your home screen. Your launcher will ask where to place it. You can also long-press the home screen, tap Widgets and pick Meow Island.</Sub>

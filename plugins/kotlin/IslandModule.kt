@@ -194,6 +194,6 @@ class IslandModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
 }
 
 class IslandPackage : ReactPackage {
-    override fun createNativeModules(c: ReactApplicationContext): List<NativeModule> = listOf<NativeModule>(IslandModule(c), WellbeingModule(c))
+    override fun createNativeModules(c: ReactApplicationContext): List<NativeModule> = listOf<NativeModule>(IslandModule(c), WellbeingModule(c), DeviceModule(c))
     override fun createViewManagers(c: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }

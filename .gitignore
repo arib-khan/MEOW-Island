@@ -4,3 +4,8 @@ android/
 dist/
 *.apk
 *.keystore
+
+# firmware desktop tests: downloaded library copy and generated images
+firmware/host-tests/.deps/
+firmware/host-tests/out/
+firmware/MeowIsland/secrets.h

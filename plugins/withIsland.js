@@ -7,6 +7,14 @@ module.exports = (config) => {
     const m = c.modResults.manifest;
     const perms = ['SYSTEM_ALERT_WINDOW','FOREGROUND_SERVICE','FOREGROUND_SERVICE_SPECIAL_USE','POST_NOTIFICATIONS','RECEIVE_BOOT_COMPLETED','SCHEDULE_EXACT_ALARM','PACKAGE_USAGE_STATS','ACTIVITY_RECOGNITION','FOREGROUND_SERVICE_HEALTH','INTERNET','ACCESS_NETWORK_STATE'];
     m['uses-permission'] = m['uses-permission'] || [];
+    // Bluetooth LE for the optional Meow Island TFT display. Scan permission is declared "never for location": the app never derives a position from it.
+    const addPerm = (name, extra) => { if (!m['uses-permission'].some(x => x.$['android:name'] === name)) m['uses-permission'].push({ $: Object.assign({ 'android:name': name }, extra || {}) }); };
+    addPerm('android.permission.BLUETOOTH_SCAN', { 'android:usesPermissionFlags': 'neverForLocation' });
+    addPerm('android.permission.BLUETOOTH_CONNECT');
+    addPerm('android.permission.BLUETOOTH', { 'android:maxSdkVersion': '30' });
+    addPerm('android.permission.BLUETOOTH_ADMIN', { 'android:maxSdkVersion': '30' });
+    m['uses-feature'] = m['uses-feature'] || [];
+    if (!m['uses-feature'].some(x => x.$['android:name'] === 'android.hardware.bluetooth_le')) m['uses-feature'].push({ $: { 'android:name': 'android.hardware.bluetooth_le', 'android:required': 'false' } });
     perms.forEach(p => { if (!m['uses-permission'].some(x => x.$['android:name']===`android.permission.${p}`)) m['uses-permission'].push({$:{'android:name':`android.permission.${p}`}}); });
     const app = m.application[0]; app.service = app.service || [];
     app.service.push({$:{'android:name':'.IslandService','android:foregroundServiceType':'specialUse','android:exported':'false'},property:[{$:{'android:name':'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE','android:value':'floating overlay'}}]});

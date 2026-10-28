@@ -35,6 +35,28 @@ export const wb = {
 };
 export const wbEvents = W ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);   // events are emitted through IslandModule
 
+const Dv: any = NativeModules.DeviceModule;
+export const deviceAvailable = !!Dv;
+/** Typed bridge to DeviceModule.kt (the Meow Island ESP32 display). The Wi-Fi password is passed straight through and never stored by the app. */
+export const dev = {
+  start: () => { try { Dv?.deviceStart(); } catch { /* optional feature */ } },
+  hasPermission: (): Promise<boolean> => Dv.deviceHasPermission(),
+  getState: (): Promise<any> => Dv.deviceGetState(),
+  scanStart: (): Promise<boolean> => Dv.deviceScanStart(),
+  scanStop: () => Dv.deviceScanStop(),
+  scanResults: (): Promise<string> => Dv.deviceScanResults(),
+  pair: (address: string): Promise<boolean> => Dv.devicePair(address),
+  disconnect: () => Dv.deviceDisconnect(),
+  reconnect: () => Dv.deviceReconnect(),
+  unpair: (clearWifi: boolean): Promise<boolean> => Dv.deviceUnpair(clearWifi),
+  setScreen: (id: number): Promise<boolean> => Dv.deviceSetScreen(id),
+  syncNow: (): Promise<boolean> => Dv.deviceSyncNow(),
+  setWifi: (ssid: string, pass: string): Promise<boolean> => Dv.deviceSetWifi(ssid, pass),
+  clearWifi: (): Promise<boolean> => Dv.deviceClearWifi(),
+  openBluetoothSettings: () => Dv.deviceOpenBluetoothSettings(),
+};
+export const devEvents = Dv ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);   // emitted through IslandModule
+
 export type AppInfo = { pkg: string; name: string; icon: string };
 export type TimerInfo = { id: string; label: string; endAt: number; notifId: string };
 export type Media = { active: boolean; title?: string; artist?: string; playing?: boolean; position?: number; duration?: number; canNext?: boolean; canPrev?: boolean; art?: string };
