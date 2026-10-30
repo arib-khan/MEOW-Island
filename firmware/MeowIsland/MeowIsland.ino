@@ -1,9 +1,10 @@
 // Meow Island - ESP32 DevKit V1 + 2.8" ST7789 (240x320, SPI).
-// Three screens: neon sleeping-cat CLOCK, STEP goals and MUSIC, driven by the Meow Island Android app over Bluetooth LE.
+// Six screens: neon sleeping-cat CLOCK, STEP goals, MUSIC, phone SCREEN TIME, NOTIFICATIONS and a user-made CUSTOM screen (rendered from HTML on the phone),
+// driven by the Meow Island Android app over Bluetooth LE.
 //
 // Libraries (Arduino IDE > Library Manager):  Adafruit GFX Library, Adafruit ST7735 and ST7789 Library, NimBLE-Arduino (version 2.x).
 // Board: "ESP32 Dev Module". If the compiler says the sketch is too big, set Tools > Partition Scheme to "Minimal SPIFFS" or "Huge APP".
-// Buttons: BOOT button (GPIO0): tap = next screen, hold 3 s = open pairing for a new phone, hold 10 s = forget phones and Wi-Fi.
+// Buttons: BOOT button (GPIO0): tap = next screen (the custom screen is skipped until a design is stored), hold 3 s = open pairing for a new phone, hold 10 s = forget phones and Wi-Fi.
 // See firmware/README.md for wiring, flashing and pairing.
 
 #include <WiFi.h>
@@ -15,7 +16,9 @@
 #include "gfx_common.h"
 #include "clock_screen.h"
 #include "steps_screen.h"
-#include "music_screen.h"
+#include "screentime_screen.h"
+#include "notifs_screen.h"
+#include "music_screen.h"      // also pulls in custom_store.h (LittleFS image storage, album art buffer, custom screen drawing)
 #include "overlay_screen.h"
 #include "device_link.h"
 
@@ -28,6 +31,7 @@ static bool needRedraw = true;
 
 static StepsView stepsView;  static uint32_t stepsRxAt = 0;
 static MusicView musicView;
+static ScreenTimeView stView; static NotifsView ntView; static CustomView cuView;
 
 static Preferences prefs;
 static char wifiSsid[33] = "", wifiPass[64] = "";
@@ -94,8 +98,16 @@ static void showScreen(uint32_t now) {
   switch (curScreen) {
     case meow::SCREEN_STEPS: stepsView.linked = bleSecure; tft.fillScreen(C_BG); stepsRender(stepsView); break;
     case meow::SCREEN_MUSIC: musicView.linked = bleSecure; musicEnter(musicView, now); break;
+    case meow::SCREEN_SCREENTIME: stView.linked = bleSecure; screenTimeRender(stView); break;
+    case meow::SCREEN_NOTIFS: ntView.linked = bleSecure; notifsRender(ntView, now); break;
+    case meow::SCREEN_CUSTOM: cuView.linked = bleSecure; customEnter(cuView); break;
     default: clockEnter(wifiUp()); break;
   }
+}
+// BOOT button order. The custom screen is skipped until a design is stored (the phone can still select it explicitly).
+static uint8_t nextScreen(uint8_t s) {
+  for (int i = 0; i < meow::SCREEN_COUNT; i++) { s = (uint8_t)((s + 1) % meow::SCREEN_COUNT); if (s == meow::SCREEN_CUSTOM && !customCrc) continue; return s; }
+  return meow::SCREEN_CLOCK;
 }
 static void setScreen(uint8_t s) { if (s >= meow::SCREEN_COUNT) s = meow::SCREEN_CLOCK; if (s != curScreen) { curScreen = s; needRedraw = true; } }
 
@@ -129,7 +141,31 @@ static void handleFrames(uint32_t now) {
   }
   if (bleTake(meow::MSG_MUSIC, f)) {
     meow::MusicData d;
-    if (meow::parseMusic(f.payload, f.len, d)) { musicView.d = d; musicView.haveData = true; musicView.rxAt = now; }
+    if (meow::parseMusic(f.payload, f.len, d)) {
+      if (strcmp(d.title, musicView.d.title) != 0 || strcmp(d.artist, musicView.d.artist) != 0) {      // a new track: lyric lines and art of the previous one must not linger
+        char keep[sizeof musicView.d2.src]; memcpy(keep, musicView.d2.src, sizeof keep);
+        musicView.d2 = meow::Music2Data(); memcpy(musicView.d2.src, keep, sizeof keep);
+      }
+      musicView.d = d; musicView.haveData = true; musicView.rxAt = now;
+    }
+  }
+  if (bleTake(meow::MSG_MUSIC2, f)) { meow::Music2Data d; if (meow::parseMusic2(f.payload, f.len, d)) { musicView.d2 = d; musicView.haveData2 = true; } }
+  if (bleTake(meow::MSG_SCREENTIME, f)) {
+    meow::ScreenTimeData d;
+    if (meow::parseScreenTime(f.payload, f.len, d)) { stView.d = d; stView.haveData = true; stView.rxAt = now; if (curScreen == meow::SCREEN_SCREENTIME && overlay == OV_NONE) { stView.linked = bleSecure; screenTimeRender(stView); } }
+  }
+  if (bleTake(meow::MSG_NOTIFS, f)) {
+    meow::NotifData d;
+    if (meow::parseNotifs(f.payload, f.len, d)) { ntView.d = d; ntView.haveData = true; ntView.rxAt = now; if (curScreen == meow::SCREEN_NOTIFS && overlay == OV_NONE) { ntView.linked = bleSecure; notifsRender(ntView, now); } }
+  }
+  // image transfer (custom screen, album art): every frame in order, never "latest wins"
+  { meow::Frame im; int guard = 0;
+    while (guard++ < 32 && bleTakeImg(im)) {
+      if (im.type == meow::MSG_IMG_BEGIN) { meow::ImgBegin b; if (meow::parseImgBegin(im.payload, im.len, b)) imgRx.onBegin(b, now); }
+      else if (im.type == meow::MSG_IMG_DATA) imgRx.onData(im.payload, im.len, now);
+      else if (im.type == meow::MSG_IMG_END) imgRx.onEnd(im.payload, im.len);
+      else if (im.type == meow::MSG_IMG_CTRL && im.len == 1) imgRx.onCtrl(im.payload[0]);
+    }
   }
   if (bleTake(meow::MSG_HELLO, f)) { /* the status notification the app is already subscribed to answers the hello */ }
 }
@@ -151,7 +187,7 @@ static void buttonService(uint32_t now) {
     else if (held >= 3000) {                           // open the pairing window for a new phone
       pairingOpenUntil = now + PAIRING_WINDOW_MS;
       overlay = OV_MODE; overlayUntil = now + 6000; overlayPairingMode(PAIRING_WINDOW_MS / 1000);
-    } else if (held >= 40) { setScreen((curScreen + 1) % meow::SCREEN_COUNT); }
+    } else if (held >= 40) { setScreen(nextScreen(curScreen)); }
   }
 }
 
@@ -175,6 +211,7 @@ void setup() {
   Serial.printf("Canvas: %s, free heap: %u\n", canvas ? "OK" : "FAILED (static cat)", ESP.getFreeHeap());
 
   wifiLoad();
+  customBoot();                                         // mount LittleFS, find the stored custom design (if any)
   clockEnter(false);                                    // placeholder "--:--" until the time is known
 
   WiFi.mode(WIFI_STA);
@@ -201,8 +238,9 @@ void loop() {
   st.timeValid = timeValid(); st.pairingOpen = open; st.hasWifi = haveWifi; st.bonds = (uint8_t)bleBonds();
   st.stepsFresh = stepsView.haveData && (now - stepsRxAt) < STEPS_STALE_MS; st.musicFresh = musicView.haveData && bleSecure;
   uint32_t kb = ESP.getFreeHeap() / 1024; st.heapKb = kb > 255 ? 255 : (uint8_t)kb;
-  bleService(now, st);
+  bleService(now, st, imgRx.status());
   handleFrames(now);
+  imgRx.service(now);
 
   // pairing passkey: shown for as long as the phone is still pairing
   uint32_t code;
@@ -211,13 +249,24 @@ void loop() {
 
   // keep the screens' "phone connected" flag current
   static bool lastSecure = false;
-  if (lastSecure != bleSecure) { lastSecure = bleSecure; stepsView.linked = bleSecure; if (curScreen == meow::SCREEN_STEPS && overlay == OV_NONE) stepsRender(stepsView); }
+  if (lastSecure != bleSecure) {
+    lastSecure = bleSecure; stepsView.linked = bleSecure; stView.linked = bleSecure; ntView.linked = bleSecure; cuView.linked = bleSecure;
+    if (!bleSecure) { if (imgRx.state() == meow::XFER_RECEIVING) imgRx.onCtrl(meow::CTRL_ABORT); bleFlushImg(); }   // a half-sent image is dropped, the stored one stays
+    if (overlay == OV_NONE) {
+      if (curScreen == meow::SCREEN_STEPS) stepsRender(stepsView);
+      else if (curScreen == meow::SCREEN_SCREENTIME) screenTimeRender(stView);
+      else if (curScreen == meow::SCREEN_NOTIFS) notifsRender(ntView, now);
+    }
+  }
   musicView.linked = bleSecure;
 
   if (overlay != OV_NONE) return;                       // a message is on screen: leave it alone
   if (needRedraw) showScreen(now);
   switch (curScreen) {
     case meow::SCREEN_STEPS: break;                    // static: redrawn only when new data arrives
+    case meow::SCREEN_SCREENTIME: break;               // static as well
+    case meow::SCREEN_NOTIFS: { static uint32_t lastNt = 0; if (now - lastNt >= 60000UL) { lastNt = now; notifsRender(ntView, now); } break; }   // ages tick once a minute
+    case meow::SCREEN_CUSTOM: customTick(cuView); break;
     case meow::SCREEN_MUSIC: musicTick(musicView, now); break;
     default: clockTick(now, wifiUp()); break;
   }

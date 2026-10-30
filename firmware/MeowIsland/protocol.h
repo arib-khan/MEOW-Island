@@ -3,7 +3,7 @@
 // sides against each other. All integers are little-endian.
 //
 //   frame   = 0xA5 | type | len | payload[len]            (len <= 200; any number of frames may be split across / packed into BLE writes)
-//   status  = 10 fixed bytes, read / notify (device -> phone), see encodeStatus()
+//   status  = 10 fixed bytes + 9 transfer bytes, read / notify (device -> phone), see encodeStatus() / encodeStatusExt()
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -25,9 +25,18 @@ enum MsgType : uint8_t {
   MSG_WIFI_CLEAR = 0x06,  // (empty)
   MSG_UNPAIR = 0x07,      // [flags u8: bit0 also forget Wi-Fi]
   MSG_TIME = 0x08,        // [epoch u32][tzMinutes i16]
+  // ---- protocol additions (screen time, notifications, music extras, image transfer) ----
+  MSG_SCREENTIME = 0x09,  // see ScreenTimeData
+  MSG_NOTIFS = 0x0A,      // see NotifData
+  MSG_MUSIC2 = 0x0B,      // see Music2Data (source name, lyric lines)
+  MSG_IMG_BEGIN = 0x0C,   // see ImgBegin       (image types 0x0C..0x0F are queued, never "latest wins")
+  MSG_IMG_DATA = 0x0D,    // [xfer u8][seq u16][bytes]
+  MSG_IMG_END = 0x0E,     // [xfer u8]
+  MSG_IMG_CTRL = 0x0F,    // [op u8: 1 abort transfer, 2 delete custom image, 3 clear album art]
 };
+constexpr uint8_t MSG_LAST = 0x0F;
 
-enum Screen : uint8_t { SCREEN_CLOCK = 0, SCREEN_STEPS = 1, SCREEN_MUSIC = 2, SCREEN_COUNT = 3 };
+enum Screen : uint8_t { SCREEN_CLOCK = 0, SCREEN_STEPS = 1, SCREEN_MUSIC = 2, SCREEN_SCREENTIME = 3, SCREEN_NOTIFS = 4, SCREEN_CUSTOM = 5, SCREEN_COUNT = 6 };
 enum WifiState : uint8_t { WIFI_NONE = 0, WIFI_CONNECTING = 1, WIFI_CONNECTED = 2, WIFI_FAILED = 3 };
 enum WifiReason : uint8_t { REASON_NONE = 0, REASON_NOT_FOUND = 1, REASON_AUTH = 2, REASON_TIMEOUT = 3, REASON_OTHER = 4 };
 
@@ -174,6 +183,118 @@ inline void encodeStatus(const Status& s, uint8_t* o) {
   o[0] = PROTO_VERSION; o[1] = s.fwMajor; o[2] = s.fwMinor; o[3] = s.screen; o[4] = s.wifiState; o[5] = s.wifiReason;
   o[6] = (s.timeValid ? 1 : 0) | (s.pairingOpen ? 2 : 0) | (s.hasWifi ? 4 : 0) | (s.stepsFresh ? 8 : 0) | (s.musicFresh ? 16 : 0);
   o[7] = s.bonds; o[8] = s.heapKb; o[9] = 0;
+}
+
+
+// =====================================================================================================================================
+// Protocol additions. Everything below is NEW; the messages above are unchanged byte for byte.
+// =====================================================================================================================================
+
+// ---- SCREENTIME: phone screen time today (NOT the ESP32's own display-on time) ----
+// [flags u8][totalMin u16][goalMin u16][nApps u8] then nApps x ([min u16][nameLen u8][name])
+// flags: bit0 has data, bit1 needs Usage Access, bit2 unavailable (error), bit3 goal on
+constexpr uint8_t ST_MAX_APPS = 4, ST_NAME = 14;
+constexpr uint16_t ST_MAX_MIN = 1440;
+struct ScreenTimeData {
+  bool hasData = false, needsPermission = false, unavailable = false, goalOn = false;
+  uint16_t totalMin = 0, goalMin = 0; uint8_t n = 0;
+  uint16_t appMin[ST_MAX_APPS] = {0};
+  char appName[ST_MAX_APPS][ST_NAME + 1] = {{0}};
+};
+inline bool parseScreenTime(const uint8_t* p, uint8_t n, ScreenTimeData& o) {
+  if (n < 6) return false;
+  uint8_t f = p[0]; uint16_t total = rd16(p + 1), goal = rd16(p + 3); uint8_t cnt = p[5];
+  if (total > ST_MAX_MIN || goal > ST_MAX_MIN || cnt > ST_MAX_APPS) return false;
+  ScreenTimeData t;
+  size_t at = 6;
+  for (uint8_t i = 0; i < cnt; i++) {
+    if (at + 3 > n) return false;
+    uint16_t m = rd16(p + at); uint8_t nl = p[at + 2]; at += 3;
+    if (m > ST_MAX_MIN || nl > ST_NAME || at + nl > n) return false;
+    t.appMin[i] = m; copyAscii(t.appName[i], sizeof t.appName[i], p + at, nl); at += nl;
+  }
+  if (at != n) return false;
+  t.hasData = f & 1; t.needsPermission = f & 2; t.unavailable = f & 4; t.goalOn = (f & 8) && goal > 0;
+  t.totalMin = total; t.goalMin = goal; t.n = cnt;
+  o = t; return true;
+}
+
+// ---- NOTIFS: snapshot of the newest notifications, newest first, kept in RAM only (never written to flash) ----
+// [flags u8][count u8] then count x ([ageMin u16][appLen u8][app][titleLen u8][title][textLen u8][text])
+// flags: bit0 feature on, bit1 needs Notification Access
+constexpr uint8_t NT_MAX = 8, NT_APP = 12, NT_TITLE = 24, NT_TEXT = 48;
+struct NotifItem { uint16_t ageMin = 0; char app[NT_APP + 1] = ""; char title[NT_TITLE + 1] = ""; char text[NT_TEXT + 1] = ""; };
+struct NotifData { bool enabled = false, needsAccess = false; uint8_t n = 0; NotifItem items[NT_MAX]; };
+inline bool parseNotifs(const uint8_t* p, uint8_t n, NotifData& o) {
+  if (n < 2) return false;
+  uint8_t f = p[0], cnt = p[1];
+  if (cnt > NT_MAX) return false;
+  NotifData d;
+  size_t at = 2;
+  for (uint8_t i = 0; i < cnt; i++) {
+    if (at + 3 > n) return false;
+    d.items[i].ageMin = rd16(p + at); at += 2;
+    uint8_t al = p[at++]; if (al > NT_APP || at + al + 1 > n) return false;
+    copyAscii(d.items[i].app, sizeof d.items[i].app, p + at, al); at += al;
+    uint8_t tl = p[at++]; if (tl > NT_TITLE || at + tl + 1 > n) return false;
+    copyAscii(d.items[i].title, sizeof d.items[i].title, p + at, tl); at += tl;
+    uint8_t xl = p[at++]; if (xl > NT_TEXT || at + xl > n) return false;
+    copyAscii(d.items[i].text, sizeof d.items[i].text, p + at, xl); at += xl;
+  }
+  if (at != n) return false;
+  d.enabled = f & 1; d.needsAccess = f & 2; d.n = cnt;
+  o = d; return true;
+}
+
+// ---- MUSIC2: extras for the music screen: where the sound comes from, and lyric lines when a legitimate source provided them ----
+// [flags u8][lyricState u8][lineIdx u16][srcLen u8][src][prevLen u8][prev][curLen u8][cur][nextLen u8][next]
+// flags: bit0 album art on the display belongs to this track, bit1 lyrics are time-synchronised
+// lyricState: 0 not applicable, 1 loading, 2 available (synchronised lines), 3 unavailable for this track, 4 lyrics provider off, 5 offline / error,
+//             6 the source only has plain text that is NOT time-synchronised (never shown as if it were synced)
+constexpr uint8_t M2_SRC = 14, M2_PREV = 40, M2_CUR = 56, M2_NEXT = 40;
+struct Music2Data {
+  bool hasArt = false, synced = false; uint8_t lyricState = 0; uint16_t lineIdx = 0;
+  char src[M2_SRC + 1] = ""; char prev[M2_PREV + 1] = ""; char cur[M2_CUR + 1] = ""; char next[M2_NEXT + 1] = "";
+};
+inline bool parseMusic2(const uint8_t* p, uint8_t n, Music2Data& o) {
+  if (n < 8) return false;
+  Music2Data d; d.hasArt = p[0] & 1; d.synced = p[0] & 2; d.lyricState = p[1] > 6 ? 0 : p[1]; d.lineIdx = rd16(p + 2);
+  size_t at = 4;
+  struct F { char* dst; size_t cap; uint8_t max; } fields[4] = {{d.src, sizeof d.src, M2_SRC}, {d.prev, sizeof d.prev, M2_PREV}, {d.cur, sizeof d.cur, M2_CUR}, {d.next, sizeof d.next, M2_NEXT}};
+  for (auto& f : fields) {
+    if (at + 1 > n) return false;
+    uint8_t l = p[at++]; if (l > f.max || at + l > n) return false;
+    copyAscii(f.dst, f.cap, p + at, l); at += l;
+  }
+  if (at != n) return false;
+  o = d; return true;
+}
+
+// ---- image transfer (custom HTML screen and album art) ----
+// BEGIN: [xfer u8][kind u8: 0 custom screen file, 1 album art raw RGB565][total u32][crc32 u32][chunk u16][w u16][h u16]   (16 bytes)
+// DATA : [xfer u8][seq u16][bytes ...]   chunks are numbered from 0 and accepted strictly in order; anything else is dropped and the phone resends
+// END  : [xfer u8]
+// CTRL : [op u8]
+// crc32 is the standard IEEE CRC-32 over all `total` bytes. The device answers through the status extension (encodeStatusExt).
+constexpr uint8_t KIND_CUSTOM = 0, KIND_ART = 1;
+constexpr uint8_t IMG_BEGIN_LEN = 16, IMG_MAX_CHUNK = 190;
+constexpr uint8_t CTRL_ABORT = 1, CTRL_DELETE_CUSTOM = 2, CTRL_CLEAR_ART = 3;
+constexpr uint8_t ART_MAX_SIDE = 128;
+struct ImgBegin { uint8_t xfer = 0, kind = 0; uint32_t total = 0, crc = 0; uint16_t chunk = 0, w = 0, h = 0; };
+inline bool parseImgBegin(const uint8_t* p, uint8_t n, ImgBegin& o) {
+  if (n != IMG_BEGIN_LEN) return false;
+  o.xfer = p[0]; o.kind = p[1]; o.total = rd32(p + 2); o.crc = rd32(p + 6); o.chunk = rd16(p + 10); o.w = rd16(p + 12); o.h = rd16(p + 14);
+  return o.kind <= KIND_ART && o.chunk >= 1 && o.chunk <= IMG_MAX_CHUNK && o.total > 0;
+}
+
+enum XferState : uint8_t { XFER_IDLE = 0, XFER_RECEIVING = 1, XFER_DONE = 2, XFER_FAILED = 3 };
+enum XferReason : uint8_t { XR_NONE = 0, XR_BAD_HEADER = 1, XR_TOO_LARGE = 2, XR_NO_SPACE = 3, XR_FLASH = 4, XR_CRC = 5, XR_SEQUENCE = 6, XR_BAD_IMAGE = 7, XR_NO_MEMORY = 8, XR_BUSY = 9 };
+
+// Status extension, appended after the 10 status bytes: [state u8][xfer u8][nextSeq u16][reason u8][customCrc u32]
+constexpr uint8_t STATUS_EXT_LEN = 9, STATUS_FULL_LEN = STATUS_LEN + STATUS_EXT_LEN;
+struct XferStatus { uint8_t state = XFER_IDLE, id = 0, reason = XR_NONE; uint16_t nextSeq = 0; uint32_t customCrc = 0; };
+inline void encodeStatusExt(const XferStatus& x, uint8_t* o) {   // writes STATUS_EXT_LEN bytes at o (pass status + STATUS_LEN)
+  o[0] = x.state; o[1] = x.id; wr16(o + 2, x.nextSeq); o[4] = x.reason; wr32(o + 5, x.customCrc);
 }
 
 }  // namespace meow

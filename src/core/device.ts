@@ -21,7 +21,7 @@ export function mergeDeviceState(raw: any): DeviceState {
   const r = raw && typeof raw === 'object' ? raw : {};
   return {
     state: STATES.includes(r.state) ? r.state : 'unpaired', paired: b(r.paired), ready: b(r.ready), scanning: b(r.scanning), name: s(r.name, 40), address: s(r.address, 40), ssid: s(r.ssid, 40),
-    error: s(r.error, 300), bondProblem: b(r.bondProblem), bluetoothOn: b(r.bluetoothOn, true), permission: b(r.permission), fw: s(r.fw, 12), screen: n(r.screen, 0, 2), wifiState: n(r.wifiState, 0, 3),
+    error: s(r.error, 300), bondProblem: b(r.bondProblem), bluetoothOn: b(r.bluetoothOn, true), permission: b(r.permission), fw: s(r.fw, 12), screen: n(r.screen, 0, 5), wifiState: n(r.wifiState, 0, 3),
     wifiReason: s(r.wifiReason, 120), timeValid: b(r.timeValid), hasWifi: b(r.hasWifi), pairingOpen: b(r.pairingOpen), stepsFresh: b(r.stepsFresh), musicFresh: b(r.musicFresh),
   };
 }
@@ -63,7 +63,10 @@ export function wifiText(d: DeviceState): string {
 export const SCREENS = [
   { id: 0, name: 'Clock', icon: '🕒', hint: 'The neon sleeping-cat clock. Always available.' },
   { id: 1, name: 'Steps', icon: '👟', hint: 'Today’s steps, goal and heat-map from your Health tab.' },
-  { id: 2, name: 'Music', icon: '🎵', hint: 'What is playing on this phone, with a dancing cat.' },
+  { id: 2, name: 'Music', icon: '🎵', hint: 'What is playing on this phone: album art, title, progress and, for Spotify, synced lyrics when a lyrics source is on.' },
+  { id: 3, name: 'Screen time', icon: '📱', hint: 'How long this PHONE has been used today, your daily goal and the most-used apps.' },
+  { id: 4, name: 'Notifications', icon: '🔔', hint: 'The newest notifications from this phone (needs Notification Access and the switch below).' },
+  { id: 5, name: 'Custom', icon: '🎨', hint: 'Your own HTML design, rendered on the phone and stored on the device.' },
 ] as const;
 
 export function utf8Len(str: string): number {

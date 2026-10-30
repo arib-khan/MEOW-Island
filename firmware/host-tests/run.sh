@@ -16,5 +16,7 @@ $OUT/regress_original $OUT; $OUT/regress_new $OUT
 ok=1; for i in 0 1 2 3 4 5 6; do if cmp -s $OUT/orig_$i.raw $OUT/new_$i.raw; then echo "clock frame $i: identical to the original"; else echo "clock frame $i: DIFFERENT"; ok=0; fi; done
 [ $ok = 1 ] || { echo "CLOCK REGRESSION"; exit 1; }
 $CXX render_screens.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/render_screens && $OUT/render_screens $OUT
+$CXX -fsanitize=address,undefined -o $OUT/image_test image_test.cpp && $OUT/image_test ../../tests/mimg_vectors.txt
+$CXX sketch_smoke2.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke2 && $OUT/sketch_smoke2 $OUT
 $CXX sketch_smoke.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke && $OUT/sketch_smoke $OUT
 python3 to_png.py $OUT

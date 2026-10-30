@@ -3,6 +3,7 @@ import { Alert, FlatList, Image, Modal, Pressable, Text, TextInput, View } from 
 import { Btn, Card, C, Chip, Empty, ErrorBox, H, Loading, Stepper, Sub, Toggle } from '../ui';
 import { AppInfo, native, usePerms } from '../native';
 import { LimitItem, useConfig } from '../config';
+import { PhoneScreenTimeCard } from './PhoneScreenTime';
 
 let cache: AppInfo[] | null = null;
 const Icon = ({ a, size = 40 }: { a?: AppInfo; size?: number }) =>
@@ -40,6 +41,7 @@ export default function ScreenTime() {
 
   return (
     <View>
+      <PhoneScreenTimeCard usageAccess={perms.usage} />
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Screen Time Guardian</H><Chip ok={perms.usage} label={perms.usage ? 'Usage access on' : 'Usage access off'} /></View>
         <Sub>While you are still in an app past its daily limit the island shows 😾, expands with your usage every few minutes, and shows 😺 briefly when you leave. It only gives feedback and never blocks or closes apps. Detection can lag a few seconds because Android delivers usage events in batches.</Sub>

@@ -2,7 +2,7 @@ const D = src('core/device.ts');
 
 test('device state from the native side is clamped to known values', () => {
   const d = D.mergeDeviceState({ state: 'exploding', paired: 'yes', screen: 99, wifiState: -4, name: 'x'.repeat(200), error: 5 });
-  assert.strictEqual(d.state, 'unpaired'); assert.strictEqual(d.paired, false); assert.strictEqual(d.screen, 2); assert.strictEqual(d.wifiState, 0);
+  assert.strictEqual(d.state, 'unpaired'); assert.strictEqual(d.paired, false); assert.strictEqual(d.screen, 5); assert.strictEqual(d.wifiState, 0);
   assert.strictEqual(d.name.length, 40); assert.strictEqual(d.error, '');
   assert.doesNotThrow(() => D.mergeDeviceState(null)); assert.doesNotThrow(() => D.mergeDeviceState('x'));
   assert.strictEqual(D.mergeDeviceState({ state: 'connected', ready: true }).ready, true);
@@ -35,5 +35,5 @@ test('Wi-Fi status text never contains a password and reads sensibly', () => {
 });
 test('signal bars and screen list', () => {
   assert.strictEqual(D.signalBars(-50), 3); assert.strictEqual(D.signalBars(-70), 2); assert.strictEqual(D.signalBars(-85), 1); assert.strictEqual(D.signalBars(-100), 0);
-  assert.strictEqual(D.SCREENS.length, 3); assert.strictEqual(D.SCREENS[0].name, 'Clock');
+  assert.strictEqual(D.SCREENS.length, 6); assert.strictEqual(D.SCREENS[0].name, 'Clock'); assert.deepStrictEqual(Array.from(D.SCREENS.map((s) => s.id)), [0, 1, 2, 3, 4, 5]);
 });

@@ -28,6 +28,19 @@ static std::string summarize(const Frame& f) {
     }
     case MSG_MUSIC: { MusicData m; if (!parseMusic(f.payload, f.len, m)) return "REJECTED";
       snprintf(b, sizeof b, "sess=%d play=%d pos=%d dur=%d title=[%s] artist=[%s]", m.session, m.playing, m.posSec, m.durSec, m.title, m.artist); return b; }
+    case MSG_SCREENTIME: { ScreenTimeData s; if (!parseScreenTime(f.payload, f.len, s)) return "REJECTED";
+      std::string apps; for (int i = 0; i < s.n; i++) { if (i) apps += ","; apps += std::string(s.appName[i]) + ":" + std::to_string(s.appMin[i]); }
+      snprintf(b, sizeof b, "has=%d perm=%d unavail=%d goalOn=%d total=%u goal=%u apps=%s", s.hasData, s.needsPermission, s.unavailable, s.goalOn, s.totalMin, s.goalMin, apps.c_str()); return b; }
+    case MSG_NOTIFS: { NotifData d; if (!parseNotifs(f.payload, f.len, d)) return "REJECTED";
+      std::string items; for (int i = 0; i < d.n; i++) { if (i) items += ";"; items += std::to_string(d.items[i].ageMin) + ":" + d.items[i].app + "|" + d.items[i].title + "|" + d.items[i].text; }
+      snprintf(b, sizeof b, "on=%d access=%d n=%d %s", d.enabled, d.needsAccess, d.n, items.c_str()); return b; }
+    case MSG_MUSIC2: { Music2Data m; if (!parseMusic2(f.payload, f.len, m)) return "REJECTED";
+      snprintf(b, sizeof b, "art=%d sync=%d ly=%d idx=%d src=[%s] prev=[%s] cur=[%s] next=[%s]", m.hasArt, m.synced, m.lyricState, m.lineIdx, m.src, m.prev, m.cur, m.next); return b; }
+    case MSG_IMG_BEGIN: { ImgBegin x; if (!parseImgBegin(f.payload, f.len, x)) return "REJECTED";
+      snprintf(b, sizeof b, "xfer=%d kind=%d total=%u crc=%08x chunk=%d w=%d h=%d", x.xfer, x.kind, x.total, x.crc, x.chunk, x.w, x.h); return b; }
+    case MSG_IMG_DATA: { if (f.len < 3) return "REJECTED"; std::string hx; for (int i = 3; i < f.len; i++) { char c[4]; snprintf(c, sizeof c, "%02x", f.payload[i]); hx += c; } snprintf(b, sizeof b, "xfer=%d seq=%d n=%d data=%s", f.payload[0], rd16(f.payload + 1), f.len - 3, hx.c_str()); return b; }
+    case MSG_IMG_END: snprintf(b, sizeof b, "xfer=%d", f.payload[0]); return b;
+    case MSG_IMG_CTRL: snprintf(b, sizeof b, "op=%d", f.payload[0]); return b;
     case MSG_WIFI_SET: { WifiCreds w; if (!parseWifi(f.payload, f.len, w)) return "REJECTED"; snprintf(b, sizeof b, "ssid=[%s] pass=[%s]", w.ssid, w.pass); return b; }
   }
   return "UNKNOWN";
@@ -48,6 +61,7 @@ int main(int argc, char** argv) {
   std::vector<Vec> vecs; std::string line;
   while (std::getline(in, line)) { size_t a = line.find('|'), b = line.find('|', a + 1); if (a == std::string::npos || b == std::string::npos) continue; vecs.push_back({line.substr(0, a), unhex(line.substr(a + 1, b - a - 1)), line.substr(b + 1)}); }
   CHECK(vecs.size() >= 15, "vectors loaded");
+  { int fresh = 0; for (auto& v : vecs) if (v.name.rfind("SCREENTIME", 0) == 0 || v.name.rfind("NOTIFS", 0) == 0 || v.name.rfind("MUSIC2", 0) == 0 || v.name.rfind("IMG_", 0) == 0 || v.name == "STATUS_EXT") fresh++; CHECK(fresh >= 14, "vectors for the new messages are present"); }
 
   // 1. every vector parses to exactly the values the phone encoded
   std::vector<uint8_t> stream; std::vector<std::string> expected;
@@ -56,6 +70,13 @@ int main(int argc, char** argv) {
       Status s; s.screen = 2; s.wifiState = 2; s.wifiReason = 0; s.timeValid = true; s.hasWifi = true; s.musicFresh = true; s.bonds = 1; s.heapKb = 120; s.fwMajor = 1; s.fwMinor = 0;
       uint8_t o[STATUS_LEN]; encodeStatus(s, o);
       CHECK(memcmp(o, v.bytes.data(), STATUS_LEN) == 0 && v.bytes.size() == STATUS_LEN, "status bytes identical to the phone's expectation");
+      continue;
+    }
+    if (v.name == "STATUS_EXT") {   // identical to what the phone parses: 10 status bytes + 9 transfer bytes
+      Status s; s.screen = 5; s.wifiState = 2; s.timeValid = true; s.hasWifi = true; s.musicFresh = true; s.bonds = 1; s.heapKb = 120; s.fwMajor = 1; s.fwMinor = 0;
+      XferStatus x; x.state = XFER_RECEIVING; x.id = 7; x.nextSeq = 300; x.reason = XR_NONE; x.customCrc = 0xCBF43926u;
+      uint8_t o[STATUS_FULL_LEN]; encodeStatus(s, o); encodeStatusExt(x, o + STATUS_LEN);
+      CHECK(v.bytes.size() == STATUS_FULL_LEN && memcmp(o, v.bytes.data(), STATUS_FULL_LEN) == 0, "extended status bytes identical to the phone's expectation");
       continue;
     }
     auto got = feedAll(v.bytes, v.bytes.size());

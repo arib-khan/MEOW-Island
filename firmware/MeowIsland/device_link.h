@@ -24,8 +24,13 @@ static NimBLECharacteristic* bleStatus = nullptr;
 static char bleName[20] = "MeowIsland";
 
 static portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
-static meow::Frame bleSlot[9];                       // indexed by message type 1..8
+static meow::Frame bleSlot[16];                      // indexed by message type 1..15 (state messages: only the newest of each type matters)
 static volatile uint16_t bleDirty = 0;               // bit n = bleSlot[n] holds an unread frame
+// Image transfer frames (BEGIN/DATA/END/CTRL) must NOT be "latest wins": every chunk matters. They go through a small bounded queue; when it is
+// full a frame is dropped and the phone simply resends (the receiver only accepts chunks in order and reports where it is).
+constexpr uint8_t IMGQ_N = 20;
+static meow::Frame imgQ[IMGQ_N];
+static volatile uint8_t imgQHead = 0, imgQTail = 0;
 static meow::FrameAssembler bleAssembler;            // touched only by the BLE task
 
 static volatile bool bleLinked = false;              // a phone is connected
@@ -60,9 +65,10 @@ class MeowRxCb : public NimBLECharacteristicCallbacks {
     const uint8_t* d = v.data(); size_t n = v.length();
     meow::Frame f;
     for (size_t i = 0; i < n; i++) {
-      if (bleAssembler.push(d[i], millis(), f) && f.type >= 1 && f.type <= 8) {
+      if (bleAssembler.push(d[i], millis(), f) && f.type >= 1 && f.type <= meow::MSG_LAST) {
         portENTER_CRITICAL(&bleMux);
-        bleSlot[f.type] = f; bleDirty |= (uint16_t)(1u << f.type);
+        if (f.type >= meow::MSG_IMG_BEGIN) { uint8_t nx = (uint8_t)((imgQHead + 1) % IMGQ_N); if (nx != imgQTail) { imgQ[imgQHead] = f; imgQHead = nx; } }
+        else { bleSlot[f.type] = f; bleDirty |= (uint16_t)(1u << f.type); }
         portEXIT_CRITICAL(&bleMux);
       }
     }
@@ -79,6 +85,15 @@ static bool bleTake(uint8_t type, meow::Frame& out) {
   portEXIT_CRITICAL(&bleMux);
   return got;
 }
+// Pops the oldest queued image frame, if any.
+static bool bleTakeImg(meow::Frame& out) {
+  bool got = false;
+  portENTER_CRITICAL(&bleMux);
+  if (imgQTail != imgQHead) { out = imgQ[imgQTail]; imgQTail = (uint8_t)((imgQTail + 1) % IMGQ_N); got = true; }
+  portEXIT_CRITICAL(&bleMux);
+  return got;
+}
+static void bleFlushImg() { portENTER_CRITICAL(&bleMux); imgQTail = imgQHead; portEXIT_CRITICAL(&bleMux); }
 static bool bleTakePasskey(uint32_t& code) { if (!blePasskeyReady) return false; code = blePasskey; blePasskeyReady = false; return true; }
 static int  bleBonds() { return NimBLEDevice::getNumBonds(); }
 
@@ -112,20 +127,20 @@ static void bleBegin() {
   bleRx = svc->createCharacteristic(BLE_RX_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
   bleRx->setCallbacks(&bleRxCb);
   bleStatus = svc->createCharacteristic(BLE_STATUS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN | NIMBLE_PROPERTY::NOTIFY);
-  uint8_t zero[meow::STATUS_LEN] = {0};
+  uint8_t zero[meow::STATUS_FULL_LEN] = {0};
   bleStatus->setValue(zero, sizeof zero);
   bleServer->start();
   bleBuildAdvertising(true);
 }
 
 // Called every loop: keeps the advertisement truthful (pairing open? how many phones?), publishes the status, drops stalled frames.
-static void bleService(uint32_t now, const meow::Status& st) {
-  static uint8_t lastStatus[meow::STATUS_LEN] = {0};
+static void bleService(uint32_t now, const meow::Status& st, const meow::XferStatus& xs) {
+  static uint8_t lastStatus[meow::STATUS_FULL_LEN] = {0};
   static bool lastOpen = true; static int lastBonds = -1;
   bleAssembler.expire(now);
   int bonds = bleBonds();
   if (!bleLinked && (bleAdvDirty || lastOpen != blePairingOpen || lastBonds != bonds)) { lastOpen = blePairingOpen; lastBonds = bonds; bleBuildAdvertising(blePairingOpen); }
-  uint8_t cur[meow::STATUS_LEN]; meow::encodeStatus(st, cur);
+  uint8_t cur[meow::STATUS_FULL_LEN]; meow::encodeStatus(st, cur); meow::encodeStatusExt(xs, cur + meow::STATUS_LEN);
   if (memcmp(cur, lastStatus, sizeof cur) != 0) {
     memcpy(lastStatus, cur, sizeof cur);
     bleStatus->setValue(cur, sizeof cur);

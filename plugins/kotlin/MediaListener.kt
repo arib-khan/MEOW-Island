@@ -25,6 +25,8 @@ class MediaListener : NotificationListenerService() {
         @Volatile var controller: MediaController? = null
         @Volatile var snapshot: Map<String, Any> = mapOf("active" to false)
         @Volatile var inst: MediaListener? = null
+        /** The 96x96 artwork of the current track (null when the app provides none); the device art uses it. Never persisted. */
+        @Volatile var artSmall: Bitmap? = null
     }
 
     private var msm: MediaSessionManager? = null
@@ -114,12 +116,14 @@ class MediaListener : NotificationListenerService() {
         snap["art"] = if (small != null) Img.b64(small, false) else ""
         snap["app"] = c.packageName ?: ""
         snapshot = snap
+        artSmall = small
         IslandModule.emit("media", snap)
         MeowMusic.refresh(this)
     }
 
     private fun publishNone() {
         IslandBus.remove("music")
+        artSmall = null
         snapshot = mapOf("active" to false)
         IslandModule.emit("media", snapshot)
         MeowMusic.refresh(this)
@@ -152,6 +156,8 @@ class MediaListener : NotificationListenerService() {
             IslandBus.post(Act("reminder", 90, "\u23F0 " + body, "Reminder", expireAt = System.currentTimeMillis() + 15000L, expand = true, pulse = System.currentTimeMillis()))
             return
         }
+        // the notifications screen on the display has its own switch (off by default) and does not depend on the island preview setting
+        DeviceExtras.onNotificationPosted(this, sbn.key, appLabel(sbn.packageName), title, text, n.visibility == Notification.VISIBILITY_SECRET)
         if (!cfg.optBoolean("notifEnabled", true)) return
         val app = appLabel(sbn.packageName)
         val preview = cfg.optBoolean("notifPreview", true)
@@ -161,5 +167,5 @@ class MediaListener : NotificationListenerService() {
             expireAt = System.currentTimeMillis() + cfg.optInt("expandMs", 5000) + 1500L, expand = true, pulse = System.currentTimeMillis()))
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification) { seen.remove(sbn.key) }
+    override fun onNotificationRemoved(sbn: StatusBarNotification) { seen.remove(sbn.key); DeviceExtras.onNotificationRemoved(sbn.key) }
 }

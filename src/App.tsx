@@ -14,6 +14,7 @@ import ScreenTime from './screens/ScreenTime';
 import Health from './screens/Health';
 import Wellbeing from './screens/Wellbeing';
 import Device from './screens/Device';
+import CustomScreen from './screens/CustomScreen';
 import Settings from './screens/Settings';
 import { WellbeingProvider } from './wellbeing';
 
@@ -59,7 +60,8 @@ function Shell() {
           {tab === 3 && <Health />}
           {tab === 4 && <Wellbeing />}
           {tab === 5 && <Settings openDevice={() => go(6)} />}
-          {tab === 6 && <Device back={() => go(5)} />}
+          {tab === 6 && <Device back={() => go(5)} openCustom={() => go(7)} />}
+          {tab === 7 && <CustomScreen back={() => go(6)} />}
         </ScrollView>
       </Animated.View>
       <View style={{ flexDirection: 'row', backgroundColor: C.card, borderTopWidth: 1, borderTopColor: C.line, paddingBottom: 8 }}>

@@ -4,6 +4,7 @@ import { Btn, C, Card, Chip, ErrorBox, H, Loading, Sub, Toggle } from '../ui';
 import { dev, deviceAvailable } from '../native';
 import { useDevice } from '../device';
 import { SCREENS, signalBars, statusLabel, wifiProblem, wifiText } from '../core/device';
+import { DeviceExtrasCards } from './DeviceExtras';
 
 const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
   <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
@@ -13,7 +14,7 @@ const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
 );
 
 /** The "Meow Island Device" section: pair the ESP32 display, see its connection, choose its screen, set its Wi-Fi. Reached from Settings. */
-export default function Device({ back }: { back: () => void }) {
+export default function Device({ back, openCustom }: { back: () => void; openCustom: () => void }) {
   const { state: d, found, ready, refresh, scan } = useDevice();
   const [busy, setBusy] = useState('');
   const [ssid, setSsid] = useState(''); const [pass, setPass] = useState(''); const [showPass, setShowPass] = useState(false);
@@ -92,10 +93,10 @@ export default function Device({ back }: { back: () => void }) {
         <Card>
           <H>Screen</H>
           <Sub>Choose what the display shows. The BOOT button on the display cycles the same screens, and the clock is always available.</Sub>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             {SCREENS.map((sc) => (
               <Pressable key={sc.id} accessibilityRole="button" accessibilityState={{ selected: d.screen === sc.id, disabled: !d.ready }} disabled={!d.ready} onPress={() => act('screen', () => dev.setScreen(sc.id))}
-                style={{ flex: 1, minHeight: 64, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: d.screen === sc.id ? C.accent : C.card2, opacity: d.ready ? 1 : 0.5 }}>
+                style={{ width: '31%', flexGrow: 1, minHeight: 64, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: d.screen === sc.id ? C.accent : C.card2, opacity: d.ready ? 1 : 0.5 }}>
                 <Text style={{ fontSize: 22 }}>{sc.icon}</Text><Text style={{ color: d.screen === sc.id ? C.onAccent : C.text, fontWeight: '700' }}>{sc.name}</Text>
               </Pressable>
             ))}
@@ -103,9 +104,11 @@ export default function Device({ back }: { back: () => void }) {
           <Sub>{SCREENS[d.screen].hint}</Sub>
           <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Sync now" disabled={!d.ready || busy === 'sync'} onPress={() => act('sync', () => dev.syncNow())} /></View>
           <Sub>{d.ready ? (d.stepsFresh ? 'Steps are up to date. ' : 'Steps are not on the display yet: turn on the Step counter in the Health tab. ') + (d.musicFresh ? 'Music is syncing.' : '') : ''}</Sub>
-          <Sub>The display shows only what Meow Island already knows: steps from the Health tab and what is playing (needs Notification access, as for the music widget). Titles in non-Latin scripts are shown as plain text where possible.</Sub>
+          <Sub>The display shows what Meow Island already knows: steps from the Health tab, what is playing (needs Notification access, as for the music widget), phone screen time (needs Usage Access) and, if you switch it on below, your newest notifications. Text in non-Latin scripts cannot be drawn by the display and is simplified or left out.</Sub>
         </Card>
       )}
+
+      {d.paired && <DeviceExtrasCards ready={d.ready} openCustom={openCustom} />}
 
       {d.paired && (
         <Card>

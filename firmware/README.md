@@ -41,3 +41,18 @@ and runs the whole sketch against a simulated phone and button. It does **not** 
 
 ## Regenerating the cat bitmaps
 `python tools/make_tft_assets.py` rebuilds `cat_assets.h` (130 KB of flash) from the app's own artwork.
+
+## New screens, custom image storage and the partition scheme
+
+The firmware now has six screens: Clock, Steps, Music, Screen time, Notifications and Custom. BOOT-tap cycles them (the Custom screen is skipped until a design is stored).
+
+**Partition scheme.** The custom HTML screen is stored in a LittleFS file (`/custom.mimg`, at most 64 KB; a typical design is 2-15 KB). LittleFS needs a data partition, so in the Arduino IDE choose **Tools > Partition Scheme** and use one that has a SPIFFS/LittleFS area:
+- `Minimal SPIFFS (1.9 MB APP with OTA, 190 KB SPIFFS)`, which step 3 above already recommends, `Huge APP (3 MB, 1 MB SPIFFS)` or `Default 4 MB with spiffs (1.5 MB SPIFFS)`. Not checked on real hardware: whether the sketch plus the new code still fits the app partition you pick (the compiler will say).
+- A new upload is written to `/custom.tmp` first and replaces the old file only after the CRC-32 matched and the whole file validated, so the flash must hold both for a moment: with the 190 KB area the worst case (two 64 KB files plus filesystem overhead) should fit but is untested; typical designs are far smaller. If the device reports "out of storage space" use the 1.5 MB scheme. If the board was flashed with a scheme that has no data partition, the custom screen reports an error and every other screen keeps working.
+- `LittleFS.begin(true)` formats the data partition the first time it is used. Nothing else in the sketch uses that partition.
+
+**RAM use.** The custom image is never held in RAM (it is decoded 8 rows at a time, about 3.8 KB). Album art is one 80x80 RGB565 block (12.8 KB) allocated the first time art arrives. The BLE image queue is 20 frames (about 4 KB).
+
+**Notifications** are kept in RAM only and are never written to flash.
+
+**Protocol.** See `docs/NEW_SCREENS.md` for the byte layouts (also commented in `protocol.h`, `mimg.h` and `image_rx.h`).
