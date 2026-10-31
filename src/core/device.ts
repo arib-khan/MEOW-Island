@@ -5,11 +5,11 @@ const STATES: readonly LinkState[] = ['unpaired', 'pairing', 'connecting', 'conn
 export type DeviceState = {
   state: LinkState; paired: boolean; ready: boolean; scanning: boolean; name: string; address: string; ssid: string; error: string; bondProblem: boolean;
   bluetoothOn: boolean; permission: boolean; fw: string; screen: number; wifiState: number; wifiReason: string; timeValid: boolean; hasWifi: boolean;
-  pairingOpen: boolean; stepsFresh: boolean; musicFresh: boolean;
+  pairingOpen: boolean; stepsFresh: boolean; musicFresh: boolean; diag: string;
 };
 export const EMPTY_DEVICE: DeviceState = {
   state: 'unpaired', paired: false, ready: false, scanning: false, name: '', address: '', ssid: '', error: '', bondProblem: false, bluetoothOn: true, permission: false,
-  fw: '', screen: 0, wifiState: 0, wifiReason: '', timeValid: false, hasWifi: false, pairingOpen: false, stepsFresh: false, musicFresh: false,
+  fw: '', screen: 0, wifiState: 0, wifiReason: '', timeValid: false, hasWifi: false, pairingOpen: false, stepsFresh: false, musicFresh: false, diag: '',
 };
 
 const b = (v: any, d = false) => (typeof v === 'boolean' ? v : d);
@@ -22,7 +22,7 @@ export function mergeDeviceState(raw: any): DeviceState {
   return {
     state: STATES.includes(r.state) ? r.state : 'unpaired', paired: b(r.paired), ready: b(r.ready), scanning: b(r.scanning), name: s(r.name, 40), address: s(r.address, 40), ssid: s(r.ssid, 40),
     error: s(r.error, 300), bondProblem: b(r.bondProblem), bluetoothOn: b(r.bluetoothOn, true), permission: b(r.permission), fw: s(r.fw, 12), screen: n(r.screen, 0, 5), wifiState: n(r.wifiState, 0, 3),
-    wifiReason: s(r.wifiReason, 120), timeValid: b(r.timeValid), hasWifi: b(r.hasWifi), pairingOpen: b(r.pairingOpen), stepsFresh: b(r.stepsFresh), musicFresh: b(r.musicFresh),
+    wifiReason: s(r.wifiReason, 120), timeValid: b(r.timeValid), hasWifi: b(r.hasWifi), pairingOpen: b(r.pairingOpen), stepsFresh: b(r.stepsFresh), musicFresh: b(r.musicFresh), diag: s(r.diag, 2000),
   };
 }
 

@@ -41,17 +41,26 @@ static volatile bool bleAdvDirty = true;             // advertising data needs r
 static volatile uint16_t bleConn = 0xFFFF;           // connection handle of the current phone
 static volatile uint32_t blePasskey = 0;
 static volatile bool blePasskeyReady = false;
+// Link hygiene. A phone that connects but never completes security must not hold the (only) connection forever, and a pairing attempt made while
+// the pairing window is closed must fail at once instead of leaving the phone waiting for a code nobody can see.
+constexpr uint32_t BLE_INSECURE_MAX_MS = 20000;      // a link that is still not encrypted + authenticated after this long is dropped
+constexpr uint32_t BLE_PAIRING_MAX_MS  = 120000;     // ...unless a pairing is in progress (the user is typing the code): then this long
+static volatile uint32_t bleLinkedAt = 0;            // millis() when the current phone connected
+static volatile bool blePairingActive = false;       // a passkey was displayed for the current link
+static volatile bool bleRejectPairing = false;       // pairing was attempted while the window is closed: the main loop drops the link
 
 class MeowServerCb : public NimBLEServerCallbacks {
  public:
-  void onConnect(NimBLEServer*, NimBLEConnInfo& info) override { bleConn = info.getConnHandle(); bleLinked = true; bleSecure = false; bleAssembler.reset(); }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override { bleLinked = false; bleSecure = false; bleAssembler.reset(); bleAdvDirty = true; }
+  void onConnect(NimBLEServer*, NimBLEConnInfo& info) override { bleConn = info.getConnHandle(); bleLinked = true; bleSecure = false; bleAssembler.reset(); bleLinkedAt = millis(); blePairingActive = false; bleRejectPairing = false; }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override { bleLinked = false; bleSecure = false; bleAssembler.reset(); bleAdvDirty = true; blePairingActive = false; bleRejectPairing = false; bleConn = 0xFFFF; }
   uint32_t onPassKeyDisplay() override {
     uint32_t code = 100000 + (esp_random() % 900000);
-    if (blePairingOpen) { blePasskey = code; blePasskeyReady = true; }       // shown on the TFT by the main loop
-    return code;                                                              // when closed: a code nobody can see
+    if (blePairingOpen) { blePasskey = code; blePasskeyReady = true; blePairingActive = true; bleLinkedAt = millis(); }   // shown on the TFT by the main loop
+    else bleRejectPairing = true;                                             // closed: nobody could ever read this code, so refuse right away
+    return code;
   }
   void onAuthenticationComplete(NimBLEConnInfo& info) override {
+    blePairingActive = false;
     if (info.isEncrypted() && info.isAuthenticated()) { bleSecure = true; if (info.isBonded()) bleAuthDone = true; }
     else if (bleServer) bleServer->disconnect(info);                          // unauthenticated link: drop it
   }
@@ -138,6 +147,13 @@ static void bleService(uint32_t now, const meow::Status& st, const meow::XferSta
   static uint8_t lastStatus[meow::STATUS_FULL_LEN] = {0};
   static bool lastOpen = true; static int lastBonds = -1;
   bleAssembler.expire(now);
+  if (bleLinked && bleServer && bleConn != 0xFFFF) {
+    bool drop = false;
+    if (bleRejectPairing) { bleRejectPairing = false; drop = true; }
+    else if (!bleSecure) { uint32_t limit = blePairingActive ? BLE_PAIRING_MAX_MS : BLE_INSECURE_MAX_MS; if ((uint32_t)(now - bleLinkedAt) > limit) drop = true; }
+    static uint32_t lastDrop = 0;
+    if (drop && (uint32_t)(now - lastDrop) >= 1000) { lastDrop = now; bleServer->disconnect(bleConn); }      // retried once a second until the stack reports the disconnect
+  }
   int bonds = bleBonds();
   if (!bleLinked && (bleAdvDirty || lastOpen != blePairingOpen || lastBonds != bonds)) { lastOpen = blePairingOpen; lastBonds = bonds; bleBuildAdvertising(blePairingOpen); }
   uint8_t cur[meow::STATUS_FULL_LEN]; meow::encodeStatus(st, cur); meow::encodeStatusExt(xs, cur + meow::STATUS_LEN);

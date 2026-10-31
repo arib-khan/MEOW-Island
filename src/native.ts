@@ -47,6 +47,10 @@ export const dev = {
   scanResults: (): Promise<string> => Dv.deviceScanResults(),
   pair: (address: string): Promise<boolean> => Dv.devicePair(address),
   disconnect: () => Dv.deviceDisconnect(),
+  /** Stops a pairing that is in progress and returns the link to a clean state. */
+  cancelPair: () => Dv.deviceCancelPair(),
+  /** Forgets the phone-side pairing and pairs afresh (the display must be in pairing mode). */
+  repair: (): Promise<boolean> => Dv.deviceRepair(),
   reconnect: () => Dv.deviceReconnect(),
   unpair: (clearWifi: boolean): Promise<boolean> => Dv.deviceUnpair(clearWifi),
   setScreen: (id: number): Promise<boolean> => Dv.deviceSetScreen(id),

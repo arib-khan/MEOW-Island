@@ -37,3 +37,25 @@ test('signal bars and screen list', () => {
   assert.strictEqual(D.signalBars(-50), 3); assert.strictEqual(D.signalBars(-70), 2); assert.strictEqual(D.signalBars(-85), 1); assert.strictEqual(D.signalBars(-100), 0);
   assert.strictEqual(D.SCREENS.length, 6); assert.strictEqual(D.SCREENS[0].name, 'Clock'); assert.deepStrictEqual(Array.from(D.SCREENS.map((s) => s.id)), [0, 1, 2, 3, 4, 5]);
 });
+
+test('phone and firmware use the same GATT UUIDs, frame magic, protocol version and payload limit', () => {
+  const fs = require('fs'), path = require('path');
+  const kt = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'kotlin', 'DeviceProtocol.kt'), 'utf8');
+  const link = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'MeowIsland', 'device_link.h'), 'utf8');
+  const proto = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'MeowIsland', 'protocol.h'), 'utf8');
+  const k = (name) => (kt.match(new RegExp(name + '\\s*=\\s*"([0-9a-f-]+)"')) || [])[1];
+  const f = (name) => (link.match(new RegExp(name + '\\s*=\\s*"([0-9a-f-]+)"')) || [])[1];
+  assert.ok(k('SERVICE_UUID')); assert.strictEqual(k('SERVICE_UUID'), f('BLE_SERVICE_UUID'));
+  assert.strictEqual(k('RX_UUID'), f('BLE_RX_UUID')); assert.strictEqual(k('STATUS_UUID'), f('BLE_STATUS_UUID'));
+  assert.strictEqual(parseInt((kt.match(/const val MAGIC = (0x[0-9A-Fa-f]+)/) || [])[1], 16), parseInt((proto.match(/FRAME_MAGIC\s*=\s*(0x[0-9A-Fa-f]+)/) || [])[1], 16));
+  assert.strictEqual((kt.match(/const val PROTO = (\d+)/) || [])[1], (proto.match(/PROTO_VERSION\s*=\s*(\d+)/) || [])[1]);
+  assert.ok(/require\(payload\.size <= 200\)|payload\.size <= 200/.test(kt) && /MAX_PAYLOAD\s*=\s*200/.test(proto), 'both sides cap a frame payload at 200 bytes');
+  assert.ok(/WRITE_ENC \| NIMBLE_PROPERTY::WRITE_AUTHEN/.test(link), 'firmware requires an encrypted + authenticated link for writes (the phone must therefore verify encryption before declaring the link ready)');
+});
+test('the pairing code path has timeouts, a cancel and a repair on the phone (regression guard for the stuck "Pairing…" bug)', () => {
+  const fs = require('fs'), path = require('path');
+  const link = fs.readFileSync(path.join(__dirname, '..', 'plugins', 'kotlin', 'DeviceLink.kt'), 'utf8');
+  for (const needle of ['PAIR_BOND_TIMEOUT_MS', 'PAIR_CONNECT_TIMEOUT_MS', 'fun cancelPair', 'fun repair', 'private fun pairPoll', 'private fun failPairing', 'private fun armStep', 'verifying = true', 'KEY_MISSING', 'CLOSE_GRACE_MS'])
+    assert.ok(link.includes(needle), 'DeviceLink.kt lost: ' + needle);
+  assert.ok(!/gatt\?\.disconnect\(\) \} catch \(e: Exception\) \{ \}\s*\n\s*try \{ gatt\?\.close\(\)/.test(link), 'disconnect() must not be followed immediately by close()');
+});

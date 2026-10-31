@@ -20,6 +20,7 @@ export default function Device({ back, openCustom }: { back: () => void; openCus
   const [ssid, setSsid] = useState(''); const [pass, setPass] = useState(''); const [showPass, setShowPass] = useState(false);
   const [wifiSent, setWifiSent] = useState(false);
   const [note, setNote] = useState('');
+  const [showLog, setShowLog] = useState(false);
 
   if (!deviceAvailable) return <Card><H>Needs the latest build</H><Sub>This APK was built before the device feature was added. Run the prebuild again and rebuild the app.</Sub><View style={{ marginTop: 10, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="← Back" onPress={back} /></View></Card>;
   if (!ready) return <Loading label="Loading…" />;
@@ -34,8 +35,8 @@ export default function Device({ back, openCustom }: { back: () => void; openCus
   });
   const unpair = () => Alert.alert('Unpair this device?', d.ready ? 'The display will forget this phone and can be paired again. Choose whether it should also forget its Wi-Fi.' : 'The phone will forget the device. Because it is not connected now, the display itself keeps this phone until you hold its BOOT button for 10 seconds.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Unpair', style: 'destructive', onPress: () => act('unpair', async () => { const told = await dev.unpair(false); setNote(told ? 'Unpaired. Also remove it in Android’s Bluetooth settings so a fresh pairing works.' : 'Unpaired on this phone only. Hold the BOOT button on the display for 10 seconds to reset it.'); }) },
-    ...(d.ready ? [{ text: 'Unpair + forget Wi-Fi', style: 'destructive' as const, onPress: () => act('unpair', async () => { await dev.unpair(true); setNote('Unpaired and Wi-Fi erased from the display. Remove it in Android’s Bluetooth settings too.'); }) }] : []),
+    { text: 'Unpair', style: 'destructive', onPress: () => act('unpair', async () => { const told = await dev.unpair(false); setNote(told ? 'Unpaired. If the display still appears in Android’s Bluetooth settings, forget it there too.' : 'Unpaired on this phone only. Hold the BOOT button on the display for 10 seconds to reset it.'); }) },
+    ...(d.ready ? [{ text: 'Unpair + forget Wi-Fi', style: 'destructive' as const, onPress: () => act('unpair', async () => { await dev.unpair(true); setNote('Unpaired and Wi-Fi erased from the display. If it still appears in Android’s Bluetooth settings, forget it there too.'); }) }] : []),
   ]);
 
   return (
@@ -60,7 +61,13 @@ export default function Device({ back, openCustom }: { back: () => void; openCus
           </>
         ) : <Sub>Pair the Meow Island display to see your clock, steps and music on it.</Sub>}
         {!!d.error && <ErrorBox text={d.error} />}
-        {d.bondProblem && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small title="Open Bluetooth settings" onPress={() => dev.openBluetoothSettings()} /></View>}
+        {d.bondProblem && (
+          <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            <Btn small title="Repair pairing" onPress={() => act('repair', async () => { await dev.repair(); })} />
+            <Btn small kind="ghost" title="Open Bluetooth settings" onPress={() => dev.openBluetoothSettings()} />
+          </View>
+        )}
+        {d.bondProblem && <Sub>Repair forgets this phone's old pairing and pairs again. Hold the display's BOOT button for 3 seconds first if it already has a phone paired, then type the 6-digit code it shows.</Sub>}
         {!!note && <Sub>{note}</Sub>}
       </Card>
 
@@ -85,7 +92,8 @@ export default function Device({ back, openCustom }: { back: () => void; openCus
             </View>
           ))}
           {!d.scanning && found.length === 0 && d.state === 'unpaired' && !d.error && <Sub>Nothing found yet. Check the display is on, close to the phone, and not already connected to another phone.</Sub>}
-          {d.state === 'pairing' && <Sub>Check the display for a 6-digit code and type it into the Android pairing box. This can take a few seconds to appear.</Sub>}
+          {d.state === 'pairing' && <Sub>Check the display for a 6-digit code and type it into the Android pairing box. This can take a few seconds to appear. Pairing stops by itself after 90 seconds.</Sub>}
+          {d.state === 'pairing' && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Cancel pairing" onPress={() => act('cancel', async () => { await dev.cancelPair(); })} /></View>}
         </Card>
       )}
 
@@ -109,6 +117,14 @@ export default function Device({ back, openCustom }: { back: () => void; openCus
       )}
 
       {d.paired && <DeviceExtrasCards ready={d.ready} openCustom={openCustom} />}
+
+      {!!d.diag && (
+        <Card>
+          <Pressable accessibilityRole="button" onPress={() => setShowLog(!showLog)} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: C.accent, fontWeight: '700' }}>{showLog ? 'Hide connection log' : 'Show connection log'}</Text></Pressable>
+          {showLog && <Text selectable style={{ color: C.sub, fontSize: 11, fontFamily: 'monospace' }}>{d.diag}</Text>}
+          {showLog && <Sub>This shows only Bluetooth steps and status codes (no Wi-Fi details). It is the first thing to send when a connection problem needs investigating.</Sub>}
+        </Card>
+      )}
 
       {d.paired && (
         <Card>

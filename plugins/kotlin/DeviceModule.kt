@@ -42,6 +42,8 @@ class DeviceModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     @ReactMethod fun deviceScanResults(p: Promise) { p.resolve(DeviceLink.scanResultsJson()) }
     @ReactMethod fun devicePair(address: String, p: Promise) { DeviceLink.ensureStarted(ctx); p.resolve(DeviceLink.pair(address)) }
     @ReactMethod fun deviceDisconnect() { DeviceLink.disconnect() }
+    @ReactMethod fun deviceCancelPair() { main.post { DeviceLink.cancelPair() } }
+    @ReactMethod fun deviceRepair(p: Promise) { main.post { p.resolve(DeviceLink.repair()) } }
     @ReactMethod fun deviceReconnect() { DeviceLink.ensureStarted(ctx); DeviceLink.reconnect() }
     /** Resolves true when the device was reachable and told to forget this phone too. */
     @ReactMethod fun deviceUnpair(clearWifi: Boolean, p: Promise) { p.resolve(DeviceLink.unpair(clearWifi)) }
