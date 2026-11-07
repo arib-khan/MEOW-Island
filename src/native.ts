@@ -62,12 +62,19 @@ export const dev = {
 export const devEvents = Dv ? new NativeEventEmitter(N) : (null as unknown as NativeEventEmitter);   // emitted through IslandModule
 
 // ---- screen time / notifications / lyrics / custom HTML screen (DeviceModule.kt). Everything is JSON strings across the bridge. ----
-export const deviceExtrasAvailable = !!(Dv && Dv.customPick && Dv.deviceScreenTimeGet && Dv.deviceNotifsGet && Dv.deviceLyricsGet);
-export type CustomInfo = {
-  hasSaved: boolean; name: string; size: number; crc: string; auto: boolean; connected: boolean; deviceHasExt: boolean; deviceCrc: string;
-  state: 'idle' | 'sending' | 'done' | 'error'; sent: number; total: number; message: string; image?: string; html?: string;
+export const deviceExtrasAvailable = !!(Dv && Dv.screensPick && Dv.deviceScreenTimeGet && Dv.deviceNotifsGet);
+export type ScreenEntry = {
+  id: string; name: string; slot: number; crc: string; size: number; frames: number; animated: boolean; loop: boolean; durationMs: number; updatedAt: number;
+  settings: { scripts?: boolean; online?: boolean; animate?: boolean; fps?: number; durationMs?: number; loop?: string };
+  onDevice: boolean; sending: boolean; queued: boolean; shown: boolean;
 };
-export type PickedFile = { name: string; size: number; tooLarge: boolean; html: string };
+export type Library = {
+  screens: ScreenEntry[]; auto: boolean; connected: boolean; max: number;
+  device: { hasSlots: boolean; mask: number; active: number; freeKb: number; totalKb: number; fw: string; deviceOnly: number[]; inSync: boolean };
+  transfer: { state: 'idle' | 'sending' | 'done' | 'error'; id: string; sent: number; total: number; message: string; queued: number };
+};
+export type PickedBundle = { token: string; htmlName: string; html: string; assets: { path: string; size: number }[]; warnings: string[] };
+export type RenderedFrames = { loop: boolean; notes: string[]; frames: { x: number; y: number; w: number; h: number; delay: number; px: string }[] };
 const parse = (s: any): any => { try { return JSON.parse(String(s)); } catch { return null; } };
 export const devx = {
   screenTimeGet: async (): Promise<any> => parse(await Dv.deviceScreenTimeGet()),
@@ -75,21 +82,34 @@ export const devx = {
   notifsGet: async (): Promise<{ enabled: boolean; access: boolean; count: number; preview: boolean } | null> => parse(await Dv.deviceNotifsGet()),
   notifsSetEnabled: (on: boolean): Promise<boolean> => Dv.deviceNotifsSetEnabled(on),
   notifsClear: (): Promise<boolean> => Dv.deviceNotifsClear(),
-  lyricsGet: async (): Promise<{ provider: 'off' | 'online'; state: number; detail: string; source: string } | null> => parse(await Dv.deviceLyricsGet()),
-  lyricsSetProvider: (name: 'off' | 'online'): Promise<string> => Dv.deviceLyricsSetProvider(name),
-  customPick: async (): Promise<PickedFile | null> => { const r = await Dv.customPick(); return r ? parse(r) : null; },
-  customRender: (html: string, allowScripts: boolean): Promise<string> => Dv.customRender(html, allowScripts),
-  customSave: async (imageB64: string, html: string, name: string): Promise<CustomInfo | null> => parse(await Dv.customSave(imageB64, html, name)),
-  customGetSaved: async (full: boolean): Promise<CustomInfo | null> => parse(await Dv.customGetSaved(full)),
-  customSend: (): Promise<boolean> => Dv.customSend(),
-  customCancel: () => Dv.customCancel(),
-  customRemove: (): Promise<boolean> => Dv.customRemove(),
-  customSetAuto: (on: boolean): Promise<boolean> => Dv.customSetAuto(on),
+  lyricsGet: async (): Promise<{ provider: 'off' | 'lrclib'; state: number; detail: string } | null> => parse(await Dv.deviceLyricsGet()),
+  captionsGet: async (): Promise<{ enabled: boolean; service: boolean; liveCaption: number; lines: number } | null> => parse(await Dv.deviceCaptionsGet()),
+  captionsSetEnabled: (on: boolean): Promise<boolean> => Dv.deviceCaptionsSetEnabled(on),
+  captionsOpenAccessibility: () => Dv.deviceCaptionsOpenAccessibility(),
+  lyricsSetProvider: (name: 'off' | 'lrclib'): Promise<string> => Dv.deviceLyricsSetProvider(name),
+  /** Several files at once (an .html with its images, or a .zip). Resolves null when cancelled. Pass a token to add files to an earlier selection. */
+  screensPick: async (addToToken?: string): Promise<PickedBundle | null> => { const r = await Dv.screensPick(addToToken ?? null); return r ? parse(r) : null; },
+  screensDiscard: (token: string) => { try { Dv.screensDiscard(token); } catch { /* ignore */ } },
+  /** source = 'pending:<token>' or 'saved:<id>' */
+  screensGetHtml: (source: string): Promise<string> => Dv.screensGetHtml(source),
+  screensRender: async (source: string, preparedHtml: string, harness: string, settingsJson: string): Promise<RenderedFrames> => parse(await Dv.screensRender(source, preparedHtml, harness, settingsJson)),
+  screensSave: async (id: string, token: string, name: string, settingsJson: string, deviceB64: string, frames: number, animated: boolean, loop: boolean, durationMs: number): Promise<{ saved: ScreenEntry; library: Library } | null> =>
+    parse(await Dv.screensSave(id, token, name, settingsJson, deviceB64, frames, animated, loop, durationMs)),
+  screensList: async (): Promise<Library | null> => parse(await Dv.screensList()),
+  screensGetDevice: (id: string): Promise<string> => Dv.screensGetDevice(id),
+  screensRename: async (id: string, name: string): Promise<Library | null> => parse(await Dv.screensRename(id, name)),
+  screensRemove: async (id: string): Promise<Library | null> => parse(await Dv.screensRemove(id)),
+  /** ids = [] sends every screen. */
+  screensSend: (ids: string[]): Promise<boolean> => Dv.screensSend(JSON.stringify(ids)),
+  screensCancel: () => Dv.screensCancel(),
+  screensShow: (id: string): Promise<boolean> => Dv.screensShow(id),
+  screensSetAuto: (on: boolean): Promise<boolean> => Dv.screensSetAuto(on),
+  screensClearDeviceOnly: (): Promise<boolean> => Dv.screensClearDeviceOnly(),
 };
 
 export type AppInfo = { pkg: string; name: string; icon: string };
 export type TimerInfo = { id: string; label: string; endAt: number; notifId: string };
-export type Media = { active: boolean; title?: string; artist?: string; album?: string; app?: string; appName?: string; source?: string; video?: boolean; trackId?: string; playing?: boolean; position?: number; duration?: number; canNext?: boolean; canPrev?: boolean; art?: string; artRev?: number };
+export type Media = { active: boolean; title?: string; artist?: string; playing?: boolean; position?: number; duration?: number; canNext?: boolean; canPrev?: boolean; art?: string };
 
 export const native = {
   hasOverlay: (): Promise<boolean> => N.hasOverlay(),

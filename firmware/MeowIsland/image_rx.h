@@ -11,6 +11,7 @@
 #pragma once
 #include "protocol.h"
 #include "mimg.h"
+#include "mani.h"
 
 namespace meow {
 
@@ -26,6 +27,13 @@ struct RxSink {
   virtual void abort(uint8_t kind) = 0;                                            // discard the partial data
   virtual void deleteCustom() = 0;
   virtual void clearArt() = 0;
+  // ---- custom screens in several slots (KIND_SCREEN). Defaults make a sink that only knows the single custom image refuse them. ----
+  virtual uint32_t storedSlotCrc(uint8_t slot) { (void)slot; return 0; }
+  virtual bool openSlot(uint8_t slot, uint32_t total, uint8_t& reason) { (void)slot; (void)total; reason = XR_BAD_HEADER; return false; }
+  virtual bool writeSlot(const uint8_t* d, size_t n) { (void)d; (void)n; return false; }
+  virtual bool commitSlot(uint8_t slot, uint32_t crc, uint8_t& reason) { (void)slot; (void)crc; reason = XR_BAD_IMAGE; return false; }
+  virtual void abortSlot() {}
+  virtual void deleteSlot(uint8_t slot) { (void)slot; }
 };
 
 class ImageReceiver {
@@ -34,8 +42,15 @@ class ImageReceiver {
 
   void onBegin(const ImgBegin& b, uint32_t now) {
     if (state_ == XFER_RECEIVING && b.xfer == id_ && kind_ == b.kind && total_ == b.total && crcWant_ == b.crc) { last_ = now; return; }   // a repeated BEGIN keeps the progress
-    if (state_ == XFER_RECEIVING) { sink_->abort(kind_); state_ = XFER_IDLE; }
-    id_ = b.xfer; kind_ = b.kind; total_ = b.total; crcWant_ = b.crc; got_ = 0; next_ = 0; crc_ = crc32Begin(); reason_ = XR_NONE; last_ = now;
+    if (state_ == XFER_RECEIVING) { if (kind_ == KIND_SCREEN) sink_->abortSlot(); else sink_->abort(kind_); state_ = XFER_IDLE; }
+    id_ = b.xfer; kind_ = b.kind; total_ = b.total; crcWant_ = b.crc; got_ = 0; next_ = 0; crc_ = crc32Begin(); reason_ = XR_NONE; last_ = now; slot_ = b.kind == KIND_SCREEN ? b.slot : 0;
+    if (b.kind == KIND_SCREEN) {
+      if (b.total < MANI_MIN_FILE || b.total > MANI_MAX_FILE || b.w != cw_ || b.h != ch_ || b.slot >= SLOTS) return fail(b.total > MANI_MAX_FILE ? XR_TOO_LARGE : XR_BAD_HEADER);
+      if (sink_->storedSlotCrc(b.slot) != 0 && sink_->storedSlotCrc(b.slot) == b.crc) { state_ = XFER_DONE; return; }   // this slot already holds exactly this screen: no flash write
+      uint8_t why = XR_FLASH;
+      if (!sink_->openSlot(b.slot, b.total, why)) return fail(why);
+      state_ = XFER_RECEIVING; return;
+    }
     if (b.kind == KIND_CUSTOM) {
       if (b.total < MIMG_HDR + 3 || b.total > MIMG_MAX_FILE || b.w != cw_ || b.h != ch_) return fail(b.total > MIMG_MAX_FILE ? XR_TOO_LARGE : XR_BAD_HEADER);
       if (sink_->storedCustomCrc() != 0 && sink_->storedCustomCrc() == b.crc) { state_ = XFER_DONE; return; }   // already on the device: no flash write
@@ -53,7 +68,7 @@ class ImageReceiver {
     if (seq != next_) return;                                                       // duplicate or gap: ignore, the status tells the phone where we are
     size_t n = len - 3;
     if (n == 0 || got_ + n > total_) return fail(XR_SEQUENCE);
-    if (!sink_->write(kind_, p + 3, n)) return fail(XR_FLASH);
+    if (!(kind_ == KIND_SCREEN ? sink_->writeSlot(p + 3, n) : sink_->write(kind_, p + 3, n))) return fail(XR_FLASH);
     crc_ = crc32Update(crc_, p + 3, n); got_ += n; next_++; last_ = now;
   }
 
@@ -62,26 +77,33 @@ class ImageReceiver {
     if (got_ != total_) return fail(XR_SEQUENCE);
     if (crc32End(crc_) != crcWant_) return fail(XR_CRC);
     uint8_t why = XR_BAD_IMAGE;
-    if (!sink_->commit(kind_, crcWant_, why)) return fail(why);
+    if (!(kind_ == KIND_SCREEN ? sink_->commitSlot(slot_, crcWant_, why) : sink_->commit(kind_, crcWant_, why))) return fail(why);
     state_ = XFER_DONE;
   }
 
   void onCtrl(uint8_t op) {
-    if (op == CTRL_ABORT) { if (state_ == XFER_RECEIVING) sink_->abort(kind_); state_ = XFER_IDLE; reason_ = XR_NONE; }
+    if (op == CTRL_ABORT) { if (state_ == XFER_RECEIVING) { if (kind_ == KIND_SCREEN) sink_->abortSlot(); else sink_->abort(kind_); } state_ = XFER_IDLE; reason_ = XR_NONE; }
     else if (op == CTRL_DELETE_CUSTOM) { if (state_ == XFER_RECEIVING && kind_ == KIND_CUSTOM) { sink_->abort(kind_); state_ = XFER_IDLE; } sink_->deleteCustom(); }
     else if (op == CTRL_CLEAR_ART) sink_->clearArt();
   }
 
+  // CTRL_DELETE_SLOT [4][slot]: removes one custom screen. A transfer into that slot is abandoned first.
+  void onCtrlSlot(uint8_t op, uint8_t slot) {
+    if (op != CTRL_DELETE_SLOT || slot >= SLOTS) return;
+    if (state_ == XFER_RECEIVING && kind_ == KIND_SCREEN && slot_ == slot) { sink_->abortSlot(); state_ = XFER_IDLE; }
+    sink_->deleteSlot(slot);
+  }
+
   void service(uint32_t now) { if (state_ == XFER_RECEIVING && (uint32_t)(now - last_) > RX_TIMEOUT_MS) fail(XR_SEQUENCE); }
 
-  XferStatus status() const { XferStatus s; s.state = state_; s.id = id_; s.reason = reason_; s.nextSeq = next_; s.customCrc = sink_->storedCustomCrc(); s.artCrc = sink_->storedArtCrc(); return s; }
+  XferStatus status() const { XferStatus s; s.state = state_; s.id = id_; s.reason = reason_; s.nextSeq = next_; s.customCrc = kind_ == KIND_SCREEN ? sink_->storedSlotCrc(slot_) : sink_->storedCustomCrc(); s.artCrc = sink_->storedArtCrc(); return s; }
   uint8_t state() const { return state_; }
   uint8_t kind() const { return kind_; }
 
  private:
-  void fail(uint8_t why) { if (state_ == XFER_RECEIVING) sink_->abort(kind_); state_ = XFER_FAILED; reason_ = why; }
+  void fail(uint8_t why) { if (state_ == XFER_RECEIVING) { if (kind_ == KIND_SCREEN) sink_->abortSlot(); else sink_->abort(kind_); } state_ = XFER_FAILED; reason_ = why; }
   RxSink* sink_; uint16_t cw_, ch_;
-  uint8_t state_ = XFER_IDLE, id_ = 0, kind_ = 0, reason_ = XR_NONE; uint32_t total_ = 0, got_ = 0, crcWant_ = 0, crc_ = 0, last_ = 0; uint16_t next_ = 0;
+  uint8_t state_ = XFER_IDLE, id_ = 0, kind_ = 0, reason_ = XR_NONE, slot_ = 0; uint32_t total_ = 0, got_ = 0, crcWant_ = 0, crc_ = 0, last_ = 0; uint16_t next_ = 0;
 };
 
 }  // namespace meow

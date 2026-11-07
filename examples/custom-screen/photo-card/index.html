@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Photo card</title>
+<style>
+  html,body{margin:0;width:240px;height:320px;overflow:hidden;background:#0e0b16;color:#f4f0fa;font-family:sans-serif}
+  .card{position:absolute;inset:14px;border-radius:18px;background:linear-gradient(160deg,#2a2144,#181325);padding:12px;box-sizing:border-box;text-align:center}
+  img{width:170px;height:170px;border-radius:50%;object-fit:cover;margin-top:6px;animation:bob 2s ease-in-out infinite}
+  h1{font-size:20px;margin:12px 0 2px} p{font-size:13px;color:#a79dba;margin:0}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#b79cff;margin:10px 3px 0;animation:blink 1s infinite}
+  .dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+  @keyframes blink{50%{opacity:.2}}
+</style></head>
+<body><div class="card">
+  <img src="images/cat.png" alt="">
+  <h1>Hello, Mochi</h1><p id="t">0 s</p>
+  <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+</div>
+<script>
+  var s=0; setInterval(function(){ s++; document.getElementById('t').textContent = s + ' s'; }, 1000);
+</script>
+</body></html>

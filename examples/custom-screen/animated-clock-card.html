@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Animated card</title>
+<style>
+  html,body{margin:0;width:240px;height:320px;overflow:hidden;background:#0e0b16;color:#f4f0fa;font-family:sans-serif}
+  .ring{position:absolute;left:60px;top:40px;width:120px;height:120px;border-radius:50%;border:10px solid #2d2540;border-top-color:#ff9ec7;animation:spin 1.2s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #msg{position:absolute;top:190px;width:240px;text-align:center;font-size:22px}
+  #bar{position:absolute;left:30px;top:250px;height:12px;border-radius:6px;background:#b79cff;width:10px}
+  canvas{position:absolute;left:0;top:270px}
+</style></head>
+<body><div class="ring"></div><div id="msg">Loading…</div><div id="bar"></div><canvas id="c" width="240" height="50"></canvas>
+<script>
+  var t0 = performance.now(), msgs = ['Loading…','Almost there…','Meow!'];
+  var c = document.getElementById('c').getContext('2d');
+  (function frame(ts){
+    var e = (ts - t0) / 1000;
+    document.getElementById('bar').style.width = (10 + (e % 3) * 60) + 'px';
+    document.getElementById('msg').textContent = msgs[Math.floor(e % 3)];
+    c.clearRect(0,0,240,50); c.fillStyle = '#ffd166'; c.beginPath(); c.arc(30 + (e * 70) % 180, 25 + Math.sin(e * 6) * 12, 8, 0, 7); c.fill();
+    requestAnimationFrame(frame);
+  })(performance.now());
+</script></body></html>

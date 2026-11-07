@@ -22,13 +22,17 @@ class DeviceModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     private val main = Handler(Looper.getMainLooper())
     private val PICK_REQ = 7711
     private var pickPromise: Promise? = null
+    private var pickInto: String? = null
     private val listener = object : ActivityEventListener {
         override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
             if (requestCode != PICK_REQ) return
             val p = pickPromise ?: return; pickPromise = null
-            val uri = data?.data
-            if (resultCode != Activity.RESULT_OK || uri == null) { p.resolve(null); return }
-            Thread { readPicked(uri, p) }.start()
+            val uris = ArrayList<android.net.Uri>()
+            data?.clipData?.let { cd -> for (i in 0 until cd.itemCount) cd.getItemAt(i).uri?.let { uris.add(it) } }
+            if (uris.isEmpty()) data?.data?.let { uris.add(it) }
+            if (resultCode != Activity.RESULT_OK || uris.isEmpty()) { p.resolve(null); return }
+            val into = pickInto; pickInto = null
+            Thread { readPicked(uris, into, p) }.start()
         }
         override fun onNewIntent(intent: Intent) { }
     }
@@ -69,80 +73,100 @@ class DeviceModule(private val ctx: ReactApplicationContext) : ReactContextBaseJ
     /** Clears the list on the display only. Notifications on the phone are not touched. */
     @ReactMethod fun deviceNotifsClear(p: Promise) { DeviceExtras.NotifStore.clear(); DeviceLink.notifsChanged(); p.resolve(true) }
 
-    // ------------------------------------------------------------------ online lyrics source (any music provider except video apps)
-    @ReactMethod fun deviceLyricsGet(p: Promise) {
-        p.resolve(JSONObject().put("provider", DeviceExtras.lyricsProvider(ctx)).put("state", DeviceExtras.Lyrics.state)
-            .put("detail", DeviceExtras.Lyrics.detail).put("source", DeviceExtras.Lyrics.providerName).toString())
-    }
+    // ------------------------------------------------------------------ lyrics (Spotify) source
+    @ReactMethod fun deviceLyricsGet(p: Promise) { p.resolve(JSONObject().put("provider", DeviceExtras.lyricsProvider(ctx)).put("state", DeviceExtras.Lyrics.state).put("detail", DeviceExtras.Lyrics.detail).toString()) }
     @ReactMethod fun deviceLyricsSetProvider(name: String, p: Promise) { DeviceExtras.setLyricsProvider(ctx, name); DeviceLink.requestSync(); p.resolve(DeviceExtras.lyricsProvider(ctx)) }
 
-    // ------------------------------------------------------------------ custom HTML screen
-    /** Opens Android's document picker. Resolves null when cancelled, otherwise a JSON string {name,size,tooLarge,html}. Nothing is uploaded anywhere. */
-    @ReactMethod fun customPick(p: Promise) {
+    // ------------------------------------------------------------------ captions (Live Caption text for YouTube, Brave and other players)
+    @ReactMethod fun deviceCaptionsGet(p: Promise) {
+        p.resolve(JSONObject().put("enabled", DeviceExtras.captionsEnabled(ctx)).put("service", MeowCaptionService.enabledInSettings(ctx))
+            .put("liveCaption", DeviceExtras.liveCaptionSystemState(ctx)).put("lines", DeviceExtras.Captions.recent(System.currentTimeMillis()).size).toString())
+    }
+    @ReactMethod fun deviceCaptionsSetEnabled(on: Boolean, p: Promise) { DeviceExtras.setCaptionsEnabled(ctx, on); DeviceLink.requestSync(); p.resolve(on) }
+    @ReactMethod fun deviceCaptionsOpenAccessibility() { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+
+    // ------------------------------------------------------------------ custom HTML screens (library of up to 8, still or animated)
+    /** Opens Android's document picker for one or more files: an .html file with its images / fonts / scripts, or a .zip. [addToToken] adds files to a selection made earlier.
+     *  Resolves null when cancelled, otherwise JSON {token, htmlName, html, assets:[{path,size}], warnings:[]}. Nothing is uploaded anywhere. */
+    @ReactMethod fun screensPick(addToToken: String?, p: Promise) {
         val act = currentActivity
         if (act == null) { p.reject("NO_ACTIVITY", "Open the app on screen first."); return }
         if (pickPromise != null) { p.reject("BUSY", "A file picker is already open."); return }
-        pickPromise = p
+        pickPromise = p; pickInto = addToToken
         try {
-            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
-                .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/html", "application/xhtml+xml", "text/plain", "application/octet-stream"))
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             act.startActivityForResult(i, PICK_REQ)
-        } catch (e: Exception) { pickPromise = null; p.reject("PICKER", "Could not open the file picker: " + (e.message ?: "")) }
+        } catch (e: Exception) { pickPromise = null; pickInto = null; p.reject("PICKER", "Could not open the file picker: " + (e.message ?: "")) }
     }
-    private fun readPicked(uri: android.net.Uri, p: Promise) {
+    private fun readPicked(uris: List<android.net.Uri>, intoToken: String?, p: Promise) {
         try {
-            val cr = ctx.contentResolver
-            var name = "design.html"; var size = -1L
-            cr.query(uri, null, null, null, null)?.use { c ->
-                if (c.moveToFirst()) {
-                    val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); val si = c.getColumnIndex(OpenableColumns.SIZE)
-                    if (ni >= 0) name = c.getString(ni) ?: name
-                    if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
-                }
+            val cr = ctx.contentResolver; val files = ArrayList<Pair<String, ByteArray>>(); var total = 0L
+            for (uri in uris) {
+                var name = "file"
+                cr.query(uri, null, null, null, null)?.use { c -> if (c.moveToFirst()) { val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (ni >= 0) name = c.getString(ni) ?: name } }
+                val buf = ByteArrayOutputStream()
+                cr.openInputStream(uri)?.use { ins -> val b = ByteArray(16384); while (true) { val n = ins.read(b); if (n < 0) break; total += n; if (total > ScreenBundle.MAX_TOTAL * 2) throw java.io.IOException("Those files are larger than ${ScreenBundle.MAX_TOTAL * 2 / 1048576} MB."); buf.write(b, 0, n) } }
+                files.add(name to buf.toByteArray())
             }
-            val buf = ByteArrayOutputStream(); var total = 0L; var tooLarge = false
-            cr.openInputStream(uri)?.use { ins ->
-                val b = ByteArray(8192)
-                while (true) {
-                    val n = ins.read(b); if (n < 0) break
-                    total += n
-                    if (total > CustomScreen.MAX_HTML) { tooLarge = true; break }       // never read more than the limit into memory
-                    buf.write(b, 0, n)
-                }
-            }
-            val html = if (tooLarge) "" else String(buf.toByteArray(), Charsets.UTF_8).removePrefix("\uFEFF")
-            p.resolve(JSONObject().put("name", name).put("size", if (size >= 0) size else total).put("tooLarge", tooLarge).put("html", html).toString())
-        } catch (e: Exception) { p.reject("READ_FAILED", "Could not read that file: " + (e.message ?: e.javaClass.simpleName)) }
+            val into = intoToken?.let { CustomScreen.pending[it] }
+            val bundle = ScreenBundle.fromPicked(files, into)
+            val token = if (into != null && intoToken != null) intoToken else CustomScreen.newToken()
+            CustomScreen.pending[token] = bundle
+            val assets = org.json.JSONArray(); for ((k, v) in bundle.assets) assets.put(JSONObject().put("path", k).put("size", v.size))
+            p.resolve(JSONObject().put("token", token).put("htmlName", bundle.htmlName).put("html", bundle.html).put("assets", assets).put("warnings", org.json.JSONArray(bundle.warnings)).toString())
+        } catch (e: Exception) { p.reject("READ_FAILED", "Could not read those files: " + (e.message ?: e.javaClass.simpleName)) }
     }
+    @ReactMethod fun screensDiscard(token: String) { CustomScreen.pending.remove(token) }
 
-    /** Renders the HTML in an isolated WebView; resolves base64 of 240x320 RGB565 (little-endian). Rejects with a code and a readable message. */
-    @ReactMethod fun customRender(html: String, allowScripts: Boolean, p: Promise) {
-        if (html.length > CustomScreen.MAX_HTML) { p.reject("TOO_LARGE", "That file is too large."); return }
-        CustomRender.render(currentActivity, html, allowScripts) { r ->
-            val bytes = r.rgb565
-            if (bytes == null) p.reject(r.code, r.message) else p.resolve(Base64.encodeToString(bytes, Base64.NO_WRAP))
+    private fun sourceBundle(source: String): ScreenBundle? =
+        if (source.startsWith("pending:")) CustomScreen.pending[source.removePrefix("pending:")] else if (source.startsWith("saved:")) CustomScreen.loadBundle(ctx, source.removePrefix("saved:")) else null
+    /** The HTML text of a pending selection ("pending:<token>") or a saved screen ("saved:<id>"). */
+    @ReactMethod fun screensGetHtml(source: String, p: Promise) { val b = sourceBundle(source); if (b == null) p.reject("NOT_FOUND", "That screen's files are no longer on the phone.") else p.resolve(b.html) }
+
+    /** Renders and records the screen. [preparedHtml] and [harness] come from src/core/animscreen.ts. Resolves JSON {loop, notes:[], frames:[{x,y,w,h,delay,px(base64 RGB565)}]}; frame 0 is the whole screen, the others only the changed rectangle. */
+    @ReactMethod fun screensRender(source: String, preparedHtml: String, harness: String, settingsJson: String, p: Promise) {
+        val b = sourceBundle(source)
+        if (b == null) { p.reject("NOT_FOUND", "That screen's files are no longer on the phone. Choose them again."); return }
+        if (preparedHtml.length > ScreenBundle.MAX_HTML * 2) { p.reject("TOO_LARGE", "That file is too large."); return }
+        val s = try { JSONObject(settingsJson) } catch (e: Exception) { JSONObject() }
+        val o = CustomRender.Options(s.optBoolean("scripts", true), s.optBoolean("online", true), s.optBoolean("animate", true), s.optInt("fps", 10), s.optInt("durationMs", 0), s.optString("loop", "auto"))
+        CustomRender.render(currentActivity, b.toAssets(), preparedHtml, harness, o) { r ->
+            val fr = r.frames
+            if (fr == null) p.reject(r.code, r.message)
+            else Thread {
+                try {
+                    val a = org.json.JSONArray()
+                    for (f in fr) a.put(JSONObject().put("x", f.x).put("y", f.y).put("w", f.w).put("h", f.h).put("delay", f.delayMs).put("px", Base64.encodeToString(f.rgb565, Base64.NO_WRAP)))
+                    p.resolve(JSONObject().put("loop", r.loop).put("notes", org.json.JSONArray(r.notes)).put("frames", a).toString())
+                } catch (e: Throwable) { p.reject("RENDER_FAILED", "Could not hand the recording to the app: " + (e.message ?: e.javaClass.simpleName)) }
+            }.start()
         }
     }
-    /** Stores the encoded design (and the HTML it came from) in the app's private storage. Replaces the previous one only when the new one was written completely. */
-    @ReactMethod fun customSave(imageB64: String, html: String, name: String, p: Promise) {
+    /** Saves a rendered screen into the library (id empty = new screen from the pending selection [token]). Resolves the library JSON. */
+    @ReactMethod fun screensSave(id: String, token: String, name: String, settingsJson: String, deviceB64: String, frames: Int, animated: Boolean, loop: Boolean, durationMs: Int, p: Promise) {
         try {
-            val img = Base64.decode(imageB64, Base64.DEFAULT)
-            if (img.size < 19 || img.size > 65536 || img[0] != 'M'.code.toByte() || img[1] != 'I'.code.toByte()) { p.reject("BAD_IMAGE", "That is not a valid display image."); return }
-            CustomScreen.save(ctx, img, html, name)
-            p.resolve(CustomScreen.info(ctx).toString())
-        } catch (e: Exception) { p.reject("SAVE_FAILED", "Could not save the design: " + (e.message ?: e.javaClass.simpleName)) }
+            val dev = Base64.decode(deviceB64, Base64.DEFAULT)
+            val e = CustomScreen.save(ctx, id.ifEmpty { null }, token.ifEmpty { null }, name, JSONObject(settingsJson), dev, frames, animated, loop, durationMs)
+            p.resolve(JSONObject().put("saved", e.toJson()).put("library", CustomScreen.info(ctx)).toString())
+        } catch (e: Exception) { p.reject("SAVE_FAILED", "Could not save the screen: " + (e.message ?: e.javaClass.simpleName)) }
     }
-    /** JSON: saved-design info + transfer state; with full=true also the encoded image (base64) and the HTML, for showing the preview after a restart. */
-    @ReactMethod fun customGetSaved(full: Boolean, p: Promise) {
-        try {
-            val j = CustomScreen.info(ctx)
-            if (full) { CustomScreen.savedImage(ctx)?.let { j.put("image", Base64.encodeToString(it, Base64.NO_WRAP)) }; CustomScreen.savedHtml(ctx)?.let { j.put("html", it) } }
-            p.resolve(j.toString())
-        } catch (e: Exception) { p.reject("READ_FAILED", e.message ?: "failed") }
+    @ReactMethod fun screensList(p: Promise) { try { p.resolve(CustomScreen.info(ctx).toString()) } catch (e: Exception) { p.reject("READ_FAILED", e.message ?: "failed") } }
+    /** Base64 of the file the display plays, for the preview. */
+    @ReactMethod fun screensGetDevice(id: String, p: Promise) { val d = CustomScreen.deviceBytes(ctx, id); if (d == null) p.reject("NOT_FOUND", "That screen no longer exists.") else p.resolve(Base64.encodeToString(d, Base64.NO_WRAP)) }
+    @ReactMethod fun screensRename(id: String, name: String, p: Promise) { CustomScreen.rename(ctx, id, name); p.resolve(CustomScreen.info(ctx).toString()) }
+    /** Removes the screen from the phone and from the display. The display's other screens are not touched. */
+    @ReactMethod fun screensRemove(id: String, p: Promise) { main.post { CustomScreen.remove(ctx, id); p.resolve(CustomScreen.info(ctx).toString()) } }
+    /** [idsJson]: JSON array of screen ids to send, or "[]" for all of them. */
+    @ReactMethod fun screensSend(idsJson: String, p: Promise) {
+        main.post {
+            val ids = try { val a = org.json.JSONArray(idsJson); (0 until a.length()).map { a.getString(it) } } catch (e: Exception) { emptyList<String>() }
+            val err = if (ids.isEmpty()) CustomScreen.sendAll(ctx) else CustomScreen.send(ctx, ids)
+            if (err == null) p.resolve(true) else p.reject("SEND_FAILED", err)
+        }
     }
-    @ReactMethod fun customSend(p: Promise) { main.post { val err = CustomScreen.send(ctx); if (err == null) p.resolve(true) else p.reject("SEND_FAILED", err) } }
-    @ReactMethod fun customCancel() { main.post { CustomScreen.cancel() } }
-    /** Deletes the design from the phone and the device. The device's normal screens are unaffected. */
-    @ReactMethod fun customRemove(p: Promise) { main.post { CustomScreen.remove(ctx); p.resolve(true) } }
-    @ReactMethod fun customSetAuto(on: Boolean, p: Promise) { CustomScreen.setAuto(ctx, on); p.resolve(on) }
+    @ReactMethod fun screensCancel() { main.post { CustomScreen.cancel() } }
+    @ReactMethod fun screensShow(id: String, p: Promise) { main.post { val err = CustomScreen.show(ctx, id); if (err == null) p.resolve(true) else p.reject("SHOW_FAILED", err) } }
+    @ReactMethod fun screensSetAuto(on: Boolean, p: Promise) { CustomScreen.setAuto(ctx, on); p.resolve(on) }
+    /** Removes screens that are on the display but not in this app's library. */
+    @ReactMethod fun screensClearDeviceOnly(p: Promise) { main.post { CustomScreen.clearDeviceOnly(ctx); p.resolve(true) } }
 }

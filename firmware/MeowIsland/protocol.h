@@ -18,7 +18,7 @@ constexpr uint32_t FRAME_TIMEOUT_MS = 2000;     // a half-received frame older t
 
 enum MsgType : uint8_t {
   MSG_HELLO = 0x01,       // [proto u8]
-  MSG_SCREEN = 0x02,      // [screen u8: 0 clock, 1 steps, 2 music]
+  MSG_SCREEN = 0x02,      // [screen u8: 0 clock, 1 steps, 2 music, 3 screen time, 4 notifications, 5 custom] or [screen u8][slot u8] (slot picks one of the custom screens)
   MSG_STEPS = 0x03,       // see StepsData
   MSG_MUSIC = 0x04,       // see MusicData
   MSG_WIFI_SET = 0x05,    // [ssidLen u8][ssid][passLen u8][pass]
@@ -300,15 +300,29 @@ inline bool isLyricClear(const uint8_t* p, uint8_t n) { return n == 2 && p[0] ==
 // END  : [xfer u8]
 // CTRL : [op u8]
 // crc32 is the standard IEEE CRC-32 over all `total` bytes. The device answers through the status extension (encodeStatusExt).
-constexpr uint8_t KIND_CUSTOM = 0, KIND_ART = 1;
-constexpr uint8_t IMG_BEGIN_LEN = 16, IMG_MAX_CHUNK = 190;
-constexpr uint8_t CTRL_ABORT = 1, CTRL_DELETE_CUSTOM = 2, CTRL_CLEAR_ART = 3;
+// kind 0 = the original single custom image (MIMG file, always stored in slot 0), kind 1 = album art, kind 2 = a custom screen (MANI file or MIMG file)
+// stored in the slot named by the 17th BEGIN byte. The display holds MANI_SLOTS screens.
+constexpr uint8_t KIND_CUSTOM = 0, KIND_ART = 1, KIND_SCREEN = 2;
+constexpr uint8_t SLOTS = 8;
+constexpr uint8_t IMG_BEGIN_LEN = 16, IMG_BEGIN_SLOT_LEN = 17, IMG_MAX_CHUNK = 190;
+constexpr uint8_t CTRL_ABORT = 1, CTRL_DELETE_CUSTOM = 2, CTRL_CLEAR_ART = 3, CTRL_DELETE_SLOT = 4;   // CTRL_DELETE_SLOT is the only 2-byte CTRL: [4][slot]
 constexpr uint8_t ART_MAX_SIDE = 128;
-struct ImgBegin { uint8_t xfer = 0, kind = 0; uint32_t total = 0, crc = 0; uint16_t chunk = 0, w = 0, h = 0; };
+struct ImgBegin { uint8_t xfer = 0, kind = 0; uint32_t total = 0, crc = 0; uint16_t chunk = 0, w = 0, h = 0; uint8_t slot = 0; };
 inline bool parseImgBegin(const uint8_t* p, uint8_t n, ImgBegin& o) {
-  if (n != IMG_BEGIN_LEN) return false;
-  o.xfer = p[0]; o.kind = p[1]; o.total = rd32(p + 2); o.crc = rd32(p + 6); o.chunk = rd16(p + 10); o.w = rd16(p + 12); o.h = rd16(p + 14);
-  return o.kind <= KIND_ART && o.chunk >= 1 && o.chunk <= IMG_MAX_CHUNK && o.total > 0;
+  if (n != IMG_BEGIN_LEN && n != IMG_BEGIN_SLOT_LEN) return false;
+  ImgBegin b; b.xfer = p[0]; b.kind = p[1]; b.total = rd32(p + 2); b.crc = rd32(p + 6); b.chunk = rd16(p + 10); b.w = rd16(p + 12); b.h = rd16(p + 14);
+  if (b.kind > KIND_SCREEN) return false;
+  if (b.kind == KIND_SCREEN) { if (n != IMG_BEGIN_SLOT_LEN || p[16] >= SLOTS) return false; b.slot = p[16]; }
+  else if (n != IMG_BEGIN_LEN) return false;
+  if (!(b.chunk >= 1 && b.chunk <= IMG_MAX_CHUNK && b.total > 0)) return false;
+  o = b; return true;
+}
+// MSG_SCREEN: [screen u8] or [screen u8][slot u8]. hasSlot tells which; the caller decides what to do with an out-of-range screen id (clock).
+struct ScreenSel { uint8_t screen = 0, slot = 0; bool hasSlot = false; };
+inline bool parseScreenSel(const uint8_t* p, uint8_t n, ScreenSel& o) {
+  if (n != 1 && n != 2) return false;
+  ScreenSel s; s.screen = p[0]; if (n == 2) { if (p[1] >= SLOTS) return false; s.slot = p[1]; s.hasSlot = true; }
+  o = s; return true;
 }
 
 enum XferState : uint8_t { XFER_IDLE = 0, XFER_RECEIVING = 1, XFER_DONE = 2, XFER_FAILED = 3 };
@@ -321,6 +335,18 @@ constexpr uint8_t STATUS_EXT_LEN = 13, STATUS_FULL_LEN = STATUS_LEN + STATUS_EXT
 struct XferStatus { uint8_t state = XFER_IDLE, id = 0, reason = XR_NONE; uint16_t nextSeq = 0; uint32_t customCrc = 0, artCrc = 0; };
 inline void encodeStatusExt(const XferStatus& x, uint8_t* o) {   // writes STATUS_EXT_LEN bytes at o (pass status + STATUS_LEN)
   o[0] = x.state; o[1] = x.id; wr16(o + 2, x.nextSeq); o[4] = x.reason; wr32(o + 5, x.customCrc); wr32(o + 9, x.artCrc);
+}
+
+// Status extension 2 (firmware 1.3), appended after the 23 bytes above: [slotMask u16][activeSlot u8][fsFreeKb u16][fsTotalKb u16][slotDigest u32]
+//   slotMask   : bit n set = custom slot n holds a screen
+//   activeSlot : the slot the custom screen shows (or showed last)
+//   fsFreeKb / fsTotalKb : flash storage left / in total (LittleFS), so the phone can refuse a screen that cannot fit before sending it
+//   slotDigest : CRC-32 over (slot u8, file CRC-32 u32) of every occupied slot (mani.h slotDigest); the phone compares it with its own library
+// Firmware before 1.3 sends 23 bytes; the phone then knows the display cannot hold several or animated screens.
+constexpr uint8_t STATUS_SLOTS_LEN = 11, STATUS_V3_LEN = STATUS_FULL_LEN + STATUS_SLOTS_LEN;
+struct SlotStatus { uint16_t mask = 0; uint8_t active = 0; uint16_t freeKb = 0, totalKb = 0; uint32_t digest = 0; };
+inline void encodeStatusSlots(const SlotStatus& s, uint8_t* o) {   // writes STATUS_SLOTS_LEN bytes at o (pass status + STATUS_FULL_LEN)
+  wr16(o, s.mask); o[2] = s.active; wr16(o + 3, s.freeKb); wr16(o + 5, s.totalKb); wr32(o + 7, s.digest);
 }
 
 }  // namespace meow

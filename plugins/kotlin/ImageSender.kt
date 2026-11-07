@@ -10,7 +10,8 @@ class ImageSender(
     val id: Int, val kind: Int, private val data: ByteArray, private val w: Int, private val h: Int,
     private val send: (ByteArray) -> Unit,
     private val finish: (ok: Boolean, reason: Int, message: String) -> Unit,
-    private val progress: (done: Int, total: Int) -> Unit = { _, _ -> }
+    private val progress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    private val slot: Int = 0                    // custom screen slot (kind SCREEN only)
 ) {
     companion object { const val WINDOW = 8; const val STALL_MS = 2500L; const val MAX_STALLS = 6; const val R_STALLED = 6; const val R_BAD_IMAGE = 7 }
 
@@ -24,7 +25,7 @@ class ImageSender(
     private var stalls = 0
     var done = false; private set
 
-    private fun begin() = DeviceProtocol.imgBegin(id, kind, data.size, crc, DeviceProtocol.IMG_CHUNK, w, h)
+    private fun begin() = DeviceProtocol.imgBegin(id, kind, data.size, crc, DeviceProtocol.IMG_CHUNK, w, h, slot)
 
     fun start(now: Long) { lastProgress = now; send(begin()) }
 
@@ -33,7 +34,7 @@ class ImageSender(
         when (s.xferState) {
             DeviceProtocol.XFER_FAILED -> end(false, s.xferReason, DeviceProtocol.xferReasonText(s.xferReason))
             DeviceProtocol.XFER_DONE ->
-                if (kind == DeviceProtocol.KIND_CUSTOM && s.customCrc != crc) end(false, R_BAD_IMAGE, DeviceProtocol.xferReasonText(R_BAD_IMAGE))
+                if ((kind == DeviceProtocol.KIND_CUSTOM || kind == DeviceProtocol.KIND_SCREEN) && s.customCrc != crc) end(false, R_BAD_IMAGE, DeviceProtocol.xferReasonText(R_BAD_IMAGE))
                 else { progress(data.size, data.size); end(true, 0, "") }
             DeviceProtocol.XFER_RECEIVING -> {
                 confirmed = true

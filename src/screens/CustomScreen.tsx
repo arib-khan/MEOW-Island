@@ -1,187 +1,252 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Image, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, AppState, Image, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Btn, C, Card, Chip, ErrorBox, H, Sub, Toggle } from '../ui';
-import { dev, devEvents, devx, deviceExtrasAvailable, CustomInfo } from '../native';
+import { dev, devEvents, devx, deviceExtrasAvailable, Library, ScreenEntry } from '../native';
 import { useDevice } from '../device';
-import { DEVICE_H, DEVICE_W, MAX_HTML_BYTES, MAX_IMAGE_BYTES, b64decode, b64encode, decodeImage, encodeImage, htmlProblem, previewUri, rgb565FromBytes, sizeLabel, transferEstimateSeconds } from '../core/customscreen';
+import { b64decode, b64encode, sizeLabel, transferEstimateSeconds } from '../core/customscreen';
+import {
+  Animation, Built, DEFAULT_MAX_FILE, DEFAULT_SETTINGS, HARNESS_JS, MAX_FPS, ScreenSettings, buildAnimation, bundleProblem, composeFrames, decodeAnimation, durationLabel,
+  framesFromNative, gifUri, normalizeSettings, prepareHtml, screenNameFromFile, storageProblem, thumbUri,
+} from '../core/animscreen';
 
-type Draft = { name: string; html: string; bytes: Uint8Array; colors: number; reduced: boolean; uri: string };
+type Draft = {
+  source: string; token: string; id: string; name: string; html: string; files: number; settings: ScreenSettings; built: Built; gif: string; notes: string[]; warnings: string[];
+};
 type Busy = '' | 'picking' | 'rendering' | 'saving';
 
 const RENDER_ERRORS: Record<string, string> = {
-  TIMEOUT: 'The design took too long to render (8 seconds). Remove heavy scripts or very large embedded images.',
+  TIMEOUT: 'The design took too long to render. Remove heavy scripts or very large images, or lower the frame rate or duration.',
   NO_ACTIVITY: 'Keep the app open on screen while the design is rendered, then try again.',
   RENDERER_GONE: 'The web renderer crashed on this design. Try a simpler file.',
-  TOO_LARGE: `That file is larger than ${MAX_HTML_BYTES / 1024} KB.`,
+  TOO_HEAVY: 'This animation changes too much on screen to record. Lower the frame rate or the duration, or animate a smaller area.',
+  NOT_FOUND: 'The files of this screen are no longer on the phone. Choose them again.',
 };
+const FPS = [5, 10, MAX_FPS];
+const DURATIONS: [string, number][] = [['Auto', 0], ['2 s', 2000], ['4 s', 4000], ['8 s', 8000]];
+
+function Seg({ label, options, value, onChange }: { label: string; options: [string, any][]; value: any; onChange: (v: any) => void }) {
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Text style={{ color: C.sub, fontSize: 12, marginBottom: 6 }}>{label}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {options.map(([t, v]) => (
+          <Pressable key={t} accessibilityRole="button" accessibilityLabel={`${label}: ${t}`} onPress={() => onChange(v)}
+            style={{ paddingHorizontal: 14, minHeight: 36, justifyContent: 'center', borderRadius: 18, backgroundColor: value === v ? C.accent : C.card2 }}>
+            <Text style={{ color: value === v ? C.onAccent : C.text, fontSize: 13 }}>{t}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 /**
- * "Custom Screen": pick an .html file, see it exactly as the display will show it (240 x 320, after the same colour reduction), send it to the
- * device, and keep it. The file is rendered on this phone in an isolated WebView and sent over the existing Bluetooth link; nothing is uploaded.
+ * "Custom Screens": pick an .html file (with its images, or a .zip), see it exactly as the display will play it, keep up to 8 of them and choose which one
+ * the display shows. The phone renders the page (HTML, CSS, JavaScript, animations) and records it; the display plays the recording from its flash memory.
+ * Everything stays on this phone and travels over the existing Bluetooth link.
  */
 export default function CustomScreen({ back }: { back: () => void }) {
   const { state: d } = useDevice();
   const { width } = useWindowDimensions();
-  const [info, setInfo] = useState<CustomInfo | null>(null);
+  const [lib, setLib] = useState<Library | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [savedUri, setSavedUri] = useState('');
-  const [savedHtml, setSavedHtml] = useState('');
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Busy>('');
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
-  const [scripts, setScripts] = useState(false);
+  const [renaming, setRenaming] = useState<{ id: string; text: string } | null>(null);
   const alive = useRef(true);
+  const thumbFor = useRef<Record<string, string>>({});
 
-  const loadSaved = useCallback(async (full: boolean) => {
+  const refresh = useCallback(async () => {
     if (!deviceExtrasAvailable) return;
     try {
-      const i = await devx.customGetSaved(full);
-      if (!alive.current || !i) return;
-      setInfo(i);
-      if (full && i.image) { try { const dec = decodeImage(b64decode(i.image)); setSavedUri(previewUri(dec.pixels, dec.w, dec.h)); } catch { setSavedUri(''); } }
-      if (full && i.html) setSavedHtml(i.html);
-    } catch (e: any) { if (alive.current) setErr(e?.message ?? 'Could not read the saved design'); }
+      const l = await devx.screensList(); if (!alive.current || !l) return; setLib(l);
+      for (const e of l.screens) {                       // list thumbnails: first picture of each saved file, decoded once per version
+        const key = `${e.id}:${e.crc}`; if (thumbFor.current[e.id] === key) continue; thumbFor.current[e.id] = key;
+        devx.screensGetDevice(e.id).then((b64) => { const a = decodeAnimation(b64decode(b64)); const u = thumbUri(composeFrames(a)[0], a.w, a.h); if (alive.current) setThumbs((t) => ({ ...t, [e.id]: u })); }).catch(() => { delete thumbFor.current[e.id]; });
+      }
+    } catch (e: any) { if (alive.current) setErr(e?.message ?? 'Could not read the saved screens'); }
   }, []);
 
   useEffect(() => {
-    alive.current = true; loadSaved(true);
-    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') loadSaved(false); });
+    alive.current = true; refresh();
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') refresh(); });
     const ev = devEvents ? devEvents.addListener('customTransfer', (e: any) => {
       if (!alive.current) return;
-      setInfo((p) => (p ? { ...p, state: e?.state ?? p.state, sent: Number(e?.sent) || 0, total: Number(e?.total) || p.total, message: String(e?.message ?? '') } : p));
-      if (e?.state === 'done') loadSaved(false);
+      setLib((p) => (p ? { ...p, transfer: { ...p.transfer, state: e?.state ?? p.transfer.state, id: String(e?.id ?? ''), sent: Number(e?.sent) || 0, total: Number(e?.total) || p.transfer.total, message: String(e?.message ?? '') } } : p));
+      if (e?.state === 'done' || e?.state === 'error') refresh();
     }) : null;
-    const poll = setInterval(() => loadSaved(false), 4000);   // device state (is this design on the display?) changes without an event
+    const poll = setInterval(refresh, 4000);                // the display's state (which screens it holds) changes without an event
     return () => { alive.current = false; sub.remove(); ev?.remove(); clearInterval(poll); };
-  }, [loadSaved]);
+  }, [refresh]);
 
-  const build = async (html: string, name: string) => {
+  const fail = (e: any, fallback: string) => setErr(RENDER_ERRORS[e?.code] ?? (e?.message ? String(e.message) : fallback));
+
+  /** Renders, records, encodes and previews a screen. source = 'pending:<token>' (just picked) or 'saved:<id>' (re-render with other settings). */
+  const build = async (src: { source: string; token: string; id: string; name: string; html: string; files: number; warnings: string[] }, settings: ScreenSettings) => {
     setBusy('rendering'); setErr(''); setNote('');
     try {
-      const b64 = await devx.customRender(html, scripts);
-      const px = rgb565FromBytes(b64decode(b64));
-      const enc = encodeImage(px, DEVICE_W, DEVICE_H);
-      const dec = decodeImage(enc.bytes);                              // the preview is the decoded device image, so what you see is what the display gets
-      setDraft({ name, html, bytes: enc.bytes, colors: enc.colors, reduced: enc.reduced, uri: previewUri(dec.pixels, dec.w, dec.h) });
-    } catch (e: any) {
-      setDraft(null);
-      setErr(e?.code === 'TOO_COMPLEX' || e?.code === 'BAD_SIZE' ? e.message : (RENDER_ERRORS[e?.code] ?? e?.message ?? 'Could not render this file.'));
-    }
-    setBusy('');
+      const prepared = prepareHtml(src.html, settings.scripts);
+      const r = await devx.screensRender(src.source, prepared, HARNESS_JS, JSON.stringify(settings));
+      const { frames, delays } = framesFromNative(r.frames);
+      const built = buildAnimation(frames, delays, { loop: r.loop, maxBytes: DEFAULT_MAX_FILE });
+      const gif = gifUri(decodeAnimation(built.bytes));
+      if (alive.current) setDraft({ ...src, settings, built, gif, notes: r.notes ?? [] });
+    } catch (e: any) { fail(e, 'Could not render this file.'); }
+    finally { if (alive.current) setBusy(''); }
   };
 
-  const choose = async () => {
-    setErr(''); setNote(''); setBusy('picking');
+  const choose = async (addTo?: string) => {
+    setBusy('picking'); setErr(''); setNote('');
     try {
-      const f = await devx.customPick();
-      if (!f) { setBusy(''); return; }                                   // cancelled
-      if (f.tooLarge) { setBusy(''); setErr(`That file is larger than ${MAX_HTML_BYTES / 1024} KB. Simplify the design or shrink embedded images.`); return; }
-      const problem = htmlProblem(f.name, f.size, f.html);
-      if (problem) { setBusy(''); setErr(problem); return; }
-      await build(f.html, f.name);
-    } catch (e: any) { setBusy(''); setErr(e?.message ?? 'Could not open that file.'); }
+      const p = await devx.screensPick(addTo);
+      if (!p) { setBusy(''); return; }
+      const why = bundleProblem(p.htmlName, p.html.length, p.html);
+      if (why) { setErr(why); devx.screensDiscard(p.token); setBusy(''); return; }
+      const settings = draft && addTo ? draft.settings : normalizeSettings(DEFAULT_SETTINGS);
+      await build({ source: 'pending:' + p.token, token: p.token, id: draft && addTo ? draft.id : '', name: draft && addTo ? draft.name : screenNameFromFile(p.htmlName), html: p.html, files: p.assets.length, warnings: p.warnings }, settings);
+    } catch (e: any) { fail(e, 'Could not open the file.'); setBusy(''); }
   };
 
-  const saveAndSend = async () => {
+  const edit = async (e: ScreenEntry) => {
+    setBusy('rendering'); setErr(''); setNote('');
+    try {
+      const html = await devx.screensGetHtml('saved:' + e.id);
+      await build({ source: 'saved:' + e.id, token: '', id: e.id, name: e.name, html, files: 0, warnings: [] }, normalizeSettings(e.settings));
+    } catch (x: any) { fail(x, 'Could not open this screen.'); setBusy(''); }
+  };
+
+  const save = async (andSend: boolean) => {
     if (!draft) return;
-    setBusy('saving'); setErr(''); setNote('');
+    const problem = storageProblem(draft.built.bytes.length, lib?.device.hasSlots ? { totalKb: lib.device.totalKb, freeKb: lib.device.freeKb } : null);
+    if (problem && andSend) { setErr(problem); return; }
+    setBusy('saving'); setErr('');
     try {
-      await devx.customSave(b64encode(draft.bytes), draft.html, draft.name);
-      setSavedUri(draft.uri); setSavedHtml(draft.html);
-      await loadSaved(false);
-      if (d.ready) { await devx.customSend(); setNote('Sending to the display…'); }
-      else setNote('Saved on this phone. It will be sent automatically when the display connects.');
-      setDraft(null);
-    } catch (e: any) { setErr(e?.message ?? 'Could not save or send the design.'); }
-    setBusy('');
+      const r = await devx.screensSave(draft.id, draft.token, draft.name, JSON.stringify(draft.settings), b64encode(draft.built.bytes), draft.built.frames, draft.built.animated, draft.built.loop, draft.built.durationMs);
+      if (!r) throw new Error('Could not save');
+      if (!alive.current) return;
+      setLib(r.library); setDraft(null);
+      if (andSend && d.ready) { try { await devx.screensSend([r.saved.id]); setNote('Sending to the display…'); } catch (e: any) { setErr(e?.message ?? 'Could not send'); } }
+      else setNote(d.ready ? 'Saved on this phone.' : 'Saved. It is sent when the display connects.');
+    } catch (e: any) { fail(e, 'Could not save the screen.'); }
+    finally { if (alive.current) setBusy(''); }
   };
-  const sendAgain = async () => { setErr(''); try { await devx.customSend(); } catch (e: any) { setErr(e?.message ?? 'Could not start the transfer.'); } };
-  const remove = () => Alert.alert('Remove the custom design?', 'It is deleted from this phone and from the display. The display keeps all its other screens.', [
+
+  const discard = () => { if (draft?.token) devx.screensDiscard(draft.token); setDraft(null); setErr(''); };
+  const confirmRemove = (e: ScreenEntry) => Alert.alert('Remove "' + e.name + '"?', 'It is deleted from this phone and from the display. The other screens stay.', [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Remove', style: 'destructive', onPress: async () => { try { await devx.customRemove(); setSavedUri(''); setSavedHtml(''); setDraft(null); await loadSaved(false); } catch (e: any) { setErr(e?.message ?? 'Failed'); } } },
+    { text: 'Remove', style: 'destructive', onPress: () => { devx.screensRemove(e.id).then((l) => { if (l && alive.current) { setLib(l); delete thumbFor.current[e.id]; } }).catch((x: any) => setErr(x?.message ?? 'Could not remove')); } },
   ]);
-  const showScripts = (v: boolean) => {
-    if (!v) { setScripts(false); return; }
-    Alert.alert('Allow scripts?', 'JavaScript in your file will run in a sealed renderer with no network, no storage and no access to Meow Island. Only use this for files you trust (for example a QR-code library you embedded yourself).', [
-      { text: 'Cancel', style: 'cancel' }, { text: 'Allow', onPress: () => setScripts(true) }]);
-  };
+  const act = (p: Promise<any>, ok = '') => p.then(() => { if (ok) setNote(ok); refresh(); }).catch((e: any) => setErr(e?.message ?? 'Not connected'));
 
-  const pw = Math.min(width - 64, 240); const ph = Math.round((pw * DEVICE_H) / DEVICE_W);
-  const Preview = ({ uri, label }: { uri: string; label: string }) => (
-    <View style={{ alignItems: 'center', marginVertical: 10 }}>
-      <View style={{ padding: 8, borderRadius: 18, backgroundColor: '#000', borderWidth: 1, borderColor: C.card2 }}>
-        <Image source={{ uri }} style={{ width: pw, height: ph, borderRadius: 6 }} accessibilityLabel={label} />
-      </View>
-      <Sub>{DEVICE_W} × {DEVICE_H} px, the shape of the display</Sub>
-    </View>
-  );
+  if (!deviceExtrasAvailable) return <Card><H>Needs the latest build</H><Sub>This APK was built before custom screens were added. Rebuild the app (see the README).</Sub><View style={{ height: 8 }} /><Btn title="Back" kind="ghost" onPress={back} /></Card>;
 
-  if (!deviceExtrasAvailable) return <Card><H>Needs the latest build</H><Sub>This APK was built before the custom screen was added. Rebuild the app (see the README).</Sub><View style={{ height: 8 }} /><Btn title="Back" kind="ghost" onPress={back} /></Card>;
-
-  const onDevice = !!info?.hasSaved && info.deviceCrc === info.crc && info.crc !== '0';
-  const sending = info?.state === 'sending';
-  const pct = info && info.total > 0 ? Math.min(100, Math.round((info.sent * 100) / info.total)) : 0;
+  const pw = Math.min(240, width - 64), ph = Math.round((pw * 320) / 240);
+  const tr = lib?.transfer; const sending = tr?.state === 'sending';
+  const oldFw = !!lib && lib.connected && !lib.device.hasSlots;
+  const upd = (patch: Partial<ScreenSettings>) => draft && setDraft({ ...draft, settings: normalizeSettings({ ...draft.settings, ...patch }) });
+  const changed = !!draft && JSON.stringify(draft.settings) !== JSON.stringify(normalizeSettings((lib?.screens.find((s) => s.id === draft.id)?.settings) ?? draft.settings));
+  const fullStorage = draft ? storageProblem(draft.built.bytes.length, lib?.device.hasSlots ? { totalKb: lib.device.totalKb, freeKb: lib.device.freeKb } : null) : null;
 
   return (
-    <View>
-      <Pressable accessibilityRole="button" onPress={back} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: C.accent, fontWeight: '700' }}>‹ Device</Text></Pressable>
-
+    <View style={{ gap: 12 }}>
       <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Custom Screen</H><Chip ok={d.ready} label={d.ready ? 'Display connected' : 'Display not connected'} /></View>
-        <Sub>Make anything with an HTML file: your name, a QR code, a logo, a message. It becomes its own screen on the display, separate from the clock. HTML files only for now (no PNG or JPG).</Sub>
-        <Sub>Design for {DEVICE_W} × {DEVICE_H} CSS pixels. Use inline CSS and simple shapes: flat colours compress best and photos or gradients may be refused. Files up to {MAX_HTML_BYTES / 1024} KB; after conversion the picture must fit in {MAX_IMAGE_BYTES / 1024} KB. Images must be embedded in the file (data: URLs): remote images, fonts and scripts are not loaded because rendering is fully offline.</Sub>
-        <View style={{ height: 8 }} />
-        <Btn title={busy === 'picking' ? 'Opening…' : busy === 'rendering' ? 'Rendering…' : info?.hasSaved || draft ? 'Choose a different HTML file' : 'Choose an HTML file'} disabled={busy !== ''} onPress={choose} />
-        <Toggle label="Allow scripts (advanced)" hint="Off by default. Needed only if your design draws itself with JavaScript, such as an embedded QR library." value={scripts} onChange={showScripts} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Custom Screens</H><Chip ok={d.ready} label={d.ready ? 'Display connected' : 'Display not connected'} /></View>
+        <Sub>Pick an HTML file (with its images, or a .zip). Your HTML, CSS and JavaScript run on this phone, animations are recorded, and the display plays the result. Nothing is uploaded; images come from your files or, if you allow it, from the web addresses in your HTML.</Sub>
+        {oldFw && <Text style={{ color: C.warn, marginTop: 8 }}>This display runs firmware {lib?.device.fw || 'older than 1.3'}. Flash firmware 1.3 or later (firmware folder) to keep several or animated screens on it; everything else keeps working.</Text>}
+        {!!err && <ErrorBox text={err} />}
+        {!!note && !err && <Text style={{ color: C.ok, marginTop: 8 }}>{note}</Text>}
+        <View style={{ height: 10 }} />
+        <Btn title={busy === 'picking' ? 'Opening…' : busy === 'rendering' ? 'Rendering…' : 'Add a screen from HTML files'} disabled={busy !== '' || (lib?.screens.length ?? 0) >= (lib?.max ?? 8)} onPress={() => choose()} />
+        {lib && lib.screens.length >= lib.max && <Sub>The display holds {lib.max} screens. Remove one to add another.</Sub>}
       </Card>
-
-      {!!err && <ErrorBox text={err} />}
-      {!!note && <Sub>{note}</Sub>}
 
       {draft && (
         <Card>
-          <H>Preview</H>
-          <Sub>{draft.name}</Sub>
-          <Preview uri={draft.uri} label="Preview of the custom screen as the display will show it" />
-          <Sub>{sizeLabel(draft.bytes.length)} to send · {draft.colors} colours{draft.reduced ? ' (reduced from a richer picture; fine detail in gradients may band)' : ''} · about {transferEstimateSeconds(draft.bytes.length)} s over Bluetooth.</Sub>
-          <View style={{ height: 8 }} />
-          <Btn title={busy === 'saving' ? 'Saving…' : info?.hasSaved ? 'Replace and send to display' : d.ready ? 'Save and send to display' : 'Save (send when connected)'} disabled={busy !== '' || sending} onPress={saveAndSend} />
-          <View style={{ height: 6 }} />
-          <Btn kind="ghost" title="Render again" disabled={busy !== ''} onPress={() => build(draft.html, draft.name)} />
-        </Card>
-      )}
-
-      {info?.hasSaved && (
-        <Card>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Saved design</H><Chip ok={onDevice} label={onDevice ? 'On the display' : sending ? 'Sending…' : 'Not on the display'} /></View>
-          <Sub>{info.name || 'Custom design'} · {sizeLabel(info.size)}. Stored privately on this phone and on the display; it survives restarts of both.</Sub>
-          {!!savedUri && <Preview uri={savedUri} label="The saved custom screen" />}
-          {sending && (
-            <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: pct }}>
-              <View style={{ height: 8, borderRadius: 4, backgroundColor: C.card2, overflow: 'hidden' }}><View style={{ width: `${pct}%`, height: 8, backgroundColor: C.accent }} /></View>
-              <Sub>Sending {pct}% ({sizeLabel(info.sent)} of {sizeLabel(info.total)}). The previous design stays visible until the new one is complete.</Sub>
-              <View style={{ marginTop: 6, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Cancel" onPress={() => devx.customCancel()} /></View>
+          <H>{draft.id ? 'Edit screen' : 'New screen'}</H>
+          <View style={{ alignItems: 'center', marginVertical: 10 }}>
+            <Image source={{ uri: draft.gif }} style={{ width: pw, height: ph, borderRadius: 10, backgroundColor: '#000' }} resizeMode="contain" accessibilityLabel="Preview of the screen as the display will play it" />
+          </View>
+          <Sub>{draft.built.animated ? `${draft.built.frames} frames, ${durationLabel(draft.built.durationMs)}${draft.built.loop ? ', repeats' : ', plays once'}` : 'Still picture'} · {sizeLabel(draft.built.bytes.length)} · about {transferEstimateSeconds(draft.built.bytes.length)} s to send{draft.built.reduced ? ' · colours reduced to 256' : ''}</Sub>
+          {draft.warnings.map((w, i) => <Text key={'w' + i} style={{ color: C.sub, fontSize: 12, marginTop: 4 }}>{w}</Text>)}
+          {draft.notes.length > 0 && (
+            <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: C.card2 }}>
+              <Text style={{ color: C.warn, fontWeight: '600', marginBottom: 4 }}>Some files did not load</Text>
+              {draft.notes.map((n, i) => <Text key={'n' + i} style={{ color: C.text, fontSize: 12, marginTop: 2 }}>• {n}</Text>)}
+              {draft.token !== '' && <View style={{ marginTop: 8, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Add the missing files" onPress={() => choose(draft.token)} /></View>}
             </View>
           )}
-          {info.state === 'error' && !!info.message && <ErrorBox text={info.message + (info.hasSaved ? ' The design on the display, if any, has not been changed.' : '')} />}
-          {info.state === 'done' && onDevice && <Sub>Sent and checked: the display confirmed the checksum.</Sub>}
-          {!info.deviceHasExt && info.connected && <ErrorBox text="The display firmware does not support custom screens yet. Flash the updated firmware from the firmware folder." />}
-          <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <Btn small title={onDevice ? 'Send again' : 'Send to display'} disabled={!d.ready || sending} onPress={sendAgain} />
-            <Btn small kind="ghost" title="Show on display" disabled={!d.ready} onPress={() => dev.setScreen(5).catch((e: any) => setErr(e?.message ?? 'Not connected'))} />
-            <Btn small kind="ghost" title="Back to clock" disabled={!d.ready} onPress={() => dev.setScreen(0).catch((e: any) => setErr(e?.message ?? 'Not connected'))} />
-            {!!savedHtml && <Btn small kind="ghost" title="Preview again" disabled={busy !== ''} onPress={() => build(savedHtml, info.name || 'Custom design')} />}
-            <Btn small kind="danger" title="Remove" onPress={remove} />
+          <View style={{ height: 8 }} />
+          <TextInput value={draft.name} onChangeText={(t) => setDraft({ ...draft, name: t.slice(0, 40) })} placeholder="Name" placeholderTextColor={C.sub} accessibilityLabel="Screen name"
+            style={{ color: C.text, backgroundColor: C.card2, borderRadius: 10, paddingHorizontal: 12, minHeight: 44 }} />
+          <Toggle label="Run JavaScript" hint="Lets your page draw and animate itself. It runs sealed inside the renderer with no access to the app or your data." value={draft.settings.scripts} onChange={(v) => upd({ scripts: v })} />
+          <Toggle label="Load online images, fonts and styles" hint="The phone fetches the https addresses your HTML names (nothing else is sent). Off: only the files you chose are used." value={draft.settings.online} onChange={(v) => upd({ online: v })} />
+          <Toggle label="Animate" hint="Records CSS animations, transitions, timers and requestAnimationFrame. Off: a single picture of the finished page." value={draft.settings.animate} onChange={(v) => upd({ animate: v })} />
+          {draft.settings.animate && <>
+            <Seg label="Frames per second" options={FPS.map((f) => [String(f), f] as [string, number])} value={draft.settings.fps} onChange={(v) => upd({ fps: v })} />
+            <Seg label="Length" options={DURATIONS} value={draft.settings.durationMs} onChange={(v) => upd({ durationMs: v })} />
+            <Seg label="When it ends" options={[['Automatic', 'auto'], ['Repeat', 'on'], ['Play once', 'off']]} value={draft.settings.loop} onChange={(v) => upd({ loop: v })} />
+          </>}
+          {!!fullStorage && <Text style={{ color: C.warn, marginTop: 8 }}>{fullStorage}</Text>}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+            <Btn title={busy === 'saving' ? 'Saving…' : d.ready && lib?.device.hasSlots ? 'Save and send to display' : 'Save'} disabled={busy !== '' || sending || !draft.name.trim()} onPress={() => save(!!(d.ready && lib?.device.hasSlots))} />
+            <Btn kind="ghost" title={changed || draft.token === '' ? 'Render again with these settings' : 'Render again'} disabled={busy !== ''} onPress={() => build(draft, draft.settings)} />
+            <Btn kind="ghost" title="Cancel" disabled={busy === 'saving'} onPress={discard} />
           </View>
-          <Toggle label="Re-send after reconnecting" hint="If the display does not have this exact design (for example after it was replaced), it is sent again automatically. A design the display already has is never rewritten." value={info.auto} onChange={(v) => { setInfo({ ...info, auto: v }); devx.customSetAuto(v).catch(() => undefined); }} />
         </Card>
       )}
 
-      <Card>
-        <H>How it works and its limits</H>
-        <Sub>Your file is read on this phone and drawn by Android's web renderer in a sealed, offline view with no access to the app, files or the network. The picture is reduced to at most 256 colours, compressed, checked with a checksum and sent in small pieces over the existing Bluetooth connection. Nothing goes to a server.</Sub>
-        <Sub>The display can only draw plain pictures, so the design is a snapshot: animations, hover effects and live content are not supported. If a transfer fails or the connection drops, the previous design stays on the display. The BOOT button skips the custom screen until a design is stored.</Sub>
-      </Card>
+      {lib && lib.screens.length > 0 && (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><H>Your screens ({lib.screens.length}/{lib.max})</H>
+            {lib.device.hasSlots && lib.device.totalKb > 0 && <Text style={{ color: C.sub, fontSize: 12 }}>Display storage: {lib.device.freeKb} of {lib.device.totalKb} KB free</Text>}</View>
+          <Sub>The BOOT button on the display steps through every screen stored on it, one tap each.</Sub>
+          {lib.screens.map((e) => {
+            const isSending = tr?.state === 'sending' && tr.id === e.id; const pct = isSending && tr && tr.total > 0 ? Math.min(100, Math.round((tr.sent / tr.total) * 100)) : 0;
+            return (
+              <View key={e.id} style={{ marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: C.card2 }}>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  {thumbs[e.id] ? <Image source={{ uri: thumbs[e.id] }} style={{ width: 60, height: 80, borderRadius: 6, backgroundColor: '#000' }} accessibilityLabel={`Preview of ${e.name}`} /> : <View style={{ width: 60, height: 80, borderRadius: 6, backgroundColor: '#000' }} />}
+                  <View style={{ flex: 1 }}>
+                    {renaming?.id === e.id ? (
+                      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                        <TextInput autoFocus value={renaming.text} onChangeText={(t) => setRenaming({ id: e.id, text: t.slice(0, 40) })} accessibilityLabel="New name" style={{ flex: 1, color: C.text, backgroundColor: C.card, borderRadius: 8, paddingHorizontal: 10, minHeight: 40 }} />
+                        <Btn small title="Save" onPress={() => { const t = renaming.text; setRenaming(null); devx.screensRename(e.id, t).then((l) => l && setLib(l)); }} />
+                      </View>
+                    ) : <Text style={{ color: C.text, fontSize: 16, fontWeight: '600' }} numberOfLines={1}>{e.name}</Text>}
+                    <Text style={{ color: C.sub, fontSize: 12, marginTop: 2 }}>{e.animated ? `${e.frames} frames · ${durationLabel(e.durationMs)}` : 'Still'} · {sizeLabel(e.size)} · slot {e.slot + 1}</Text>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      <Chip ok={e.onDevice} label={isSending ? `Sending ${pct}%` : e.queued ? 'Waiting to send' : e.onDevice ? 'On the display' : 'Not on the display'} />
+                      {e.shown && <Chip ok label="Showing now" />}
+                    </View>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  <Btn small title="Show" disabled={!d.ready || !e.onDevice || oldFw} onPress={() => act(devx.screensShow(e.id))} />
+                  <Btn small kind="ghost" title={e.onDevice ? 'Send again' : 'Send'} disabled={!d.ready || sending || oldFw} onPress={() => act(devx.screensSend([e.id]), 'Sending to the display…')} />
+                  <Btn small kind="ghost" title="Edit" disabled={busy !== ''} onPress={() => edit(e)} />
+                  <Btn small kind="ghost" title="Rename" onPress={() => setRenaming({ id: e.id, text: e.name })} />
+                  <Btn small kind="danger" title="Remove" onPress={() => confirmRemove(e)} />
+                </View>
+                {isSending && <View style={{ marginTop: 8, height: 6, borderRadius: 3, backgroundColor: C.card }}><View style={{ width: `${pct}%`, height: 6, borderRadius: 3, backgroundColor: C.accent }} /></View>}
+              </View>
+            );
+          })}
+          {tr?.state === 'error' && <ErrorBox text={tr.message || 'The transfer failed.'} />}
+          {sending && <View style={{ marginTop: 10, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Cancel sending" onPress={() => devx.screensCancel()} /></View>}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+            <Btn small title="Send all to display" disabled={!d.ready || sending || oldFw} onPress={() => act(devx.screensSend([]), 'Sending to the display…')} />
+            <Btn small kind="ghost" title="Back to clock" disabled={!d.ready} onPress={() => act(dev.setScreen(0))} />
+          </View>
+          <Toggle label="Keep the display up to date" hint="When the display connects, screens it is missing or has an old version of are sent automatically." value={!!lib.auto} onChange={(v) => { setLib({ ...lib, auto: v }); devx.screensSetAuto(v); }} />
+          {lib.device.deviceOnly.length > 0 && <View style={{ marginTop: 8 }}>
+            <Sub>{lib.device.deviceOnly.length} screen{lib.device.deviceOnly.length > 1 ? 's are' : ' is'} on the display but not in this app (for example after reinstalling).</Sub>
+            <View style={{ marginTop: 6, alignSelf: 'flex-start' }}><Btn small kind="ghost" title="Remove them from the display" onPress={() => Alert.alert('Remove from the display?', 'These screens are not saved on this phone, so they cannot be restored.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => act(devx.screensClearDeviceOnly()) }])} /></View>
+          </View>}
+        </Card>
+      )}
+      <Btn title="Back" kind="ghost" onPress={back} />
     </View>
   );
 }

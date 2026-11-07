@@ -75,28 +75,48 @@ fun main(args: Array<String>) {
     vec("NOTIFS_TRUNC", P.notifs(true, false, listOf(P.Notif(999_999, "Instagram", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn", "x".repeat(80)))), "on=1 access=0 n=1 65535:Instagram|ABCDEFGHIJKLMNOPQRSTUVWX|" + "x".repeat(48))
     val many = P.notifs(true, false, List(8) { P.Notif(1, "a".repeat(12), "t".repeat(24), "x".repeat(48)) })
     check(many.size <= 203 && many[4].toInt() == 2, "notifications: only as many entries as fit one frame, newest first")
-    vec("MUSIC2_LYRICS", P.music2(true, true, 2, 3, "SPOTIFY", "previous line", "the current line", "next line"), "art=1 sync=1 video=0 ly=2 idx=3 src=[SPOTIFY] prev=[previous line] cur=[the current line] next=[next line]")
-    vec("MUSIC2_PLAIN", P.music2(false, false, 6, 2, "AMAZON MUSIC", "plain line before", "plain line now", "plain line after"), "art=0 sync=0 video=0 ly=6 idx=2 src=[AMAZON MUSIC] prev=[plain line before] cur=[plain line now] next=[plain line after]")
-    vec("MUSIC2_VIDEO", P.music2(true, false, 0, 0, "YOUTUBE", "", "", "", video = true), "art=1 sync=0 video=1 ly=0 idx=0 src=[YOUTUBE] prev=[] cur=[] next=[]")
-    vec("MUSIC2_OFF", P.music2(false, false, 4, 0, "AMAZON MUSIC", "", "", ""), "art=0 sync=0 video=0 ly=4 idx=0 src=[AMAZON MUSIC] prev=[] cur=[] next=[]")
+    vec("MUSIC2_LYRICS", P.music2(true, true, 2, 3, "SPOTIFY", "previous line", "the current line", "next line"), "art=1 sync=1 ly=2 idx=3 src=[SPOTIFY] prev=[previous line] cur=[the current line] next=[next line]")
+    vec("MUSIC2_CAPTIONS", P.music2(false, false, 0, 0, "YOUTUBE", "", "", ""), "art=0 sync=0 ly=0 idx=0 src=[YOUTUBE] prev=[] cur=[] next=[]")
+    vec("MUSIC2_OFF", P.music2(false, false, 4, 0, "SPOTIFY", "", "", ""), "art=0 sync=0 ly=4 idx=0 src=[SPOTIFY] prev=[] cur=[] next=[]")
+    vec("MUSIC2_CAPTION_SETUP", P.music2(false, false, P.LY_CAPTION_SETUP, 0, "YOUTUBE", "", "", ""), "art=0 sync=0 ly=7 idx=0 src=[YOUTUBE] prev=[] cur=[] next=[]")
+    vec("MUSIC2_CAPTION_WAIT", P.music2(false, false, P.LY_CAPTION_WAIT, 0, "BRAVE", "", "", ""), "art=0 sync=0 ly=8 idx=0 src=[BRAVE] prev=[] cur=[] next=[]")
+    vec("MUSIC2_CAPTION_LIVE", P.music2(true, false, P.LY_AVAILABLE, 2, "YOUTUBE", "an earlier caption line", "the newest words being spoken", ""), "art=1 sync=0 ly=2 idx=2 src=[YOUTUBE] prev=[an earlier caption line] cur=[the newest words being spoken] next=[]")
     check(P.music2(false, false, 99, 0, null, null, "c".repeat(200), null).size <= 203, "music extras never exceed one frame")
-    val band = ByteArray(P.LYR_BYTES) { (it * 13 + 5).toByte() }
-    vec("LYRIC_BAND", P.lyricBand(9, 0, 3, band, 0, P.LYR_CHUNK), "token=9 seq=0 line=3 w=224 h=80 n=190")
-    vec("LYRIC_CLEAR", P.lyricClear(), "clear")
-    check(P.lyricBand(9, 0, 3, band, 0, P.LYR_CHUNK).size == 3 + 8 + P.LYR_CHUNK, "a lyric chunk fits one frame")
-    vec("IMG_BEGIN", P.imgBegin(7, 0, 5000, 0xDEADBEEFL, P.IMG_CHUNK, 240, 320), "xfer=7 kind=0 total=5000 crc=deadbeef chunk=190 w=240 h=320")
-    vec("IMG_BEGIN_ART", P.imgBegin(8, 1, 12800, 0x12345678L, P.IMG_CHUNK, 80, 80), "xfer=8 kind=1 total=12800 crc=12345678 chunk=190 w=80 h=80")
+    vec("IMG_BEGIN", P.imgBegin(7, 0, 5000, 0xDEADBEEFL, 180, 240, 320), "xfer=7 kind=0 total=5000 crc=deadbeef chunk=180 w=240 h=320")
+    vec("IMG_BEGIN_ART", P.imgBegin(8, 1, 12800, 0x12345678L, 180, 80, 80), "xfer=8 kind=1 total=12800 crc=12345678 chunk=180 w=80 h=80")
     vec("IMG_DATA", P.imgData(7, 300, byteArrayOf(0, 1, 2, 3, 4, 5), 1, 4), "xfer=7 seq=300 n=4 data=01020304")
     vec("IMG_END", P.imgEnd(7), "xfer=7")
     vec("IMG_CTRL_DELETE", P.imgCtrl(P.CTRL_DELETE_CUSTOM), "op=2")
     check(P.crc32("123456789".toByteArray()) == 0xCBF43926L, "crc32 check value")
-    check(P.imgData(1, 0, ByteArray(190), 0, 190).size == 3 + 3 + 190, "a data chunk fits one frame")
-    val sbx = byteArrayOf(1, 1, 0, 5, 2, 0, 0x15, 1, 120, 0, 1, 7, 0x2C, 0x01, 0, 0x26, 0x39, 0xF4.toByte(), 0xCB.toByte(), 0x44, 0x33, 0x22, 0x11)
+    check(P.imgData(1, 0, ByteArray(180), 0, 180).size == 3 + 3 + 180, "a data chunk fits one frame")
+    val sbx = byteArrayOf(1, 1, 0, 5, 2, 0, 0x15, 1, 120, 0, 1, 7, 0x2C, 0x01, 0, 0x26, 0x39, 0xF4.toByte(), 0xCB.toByte())
     val px = P.parseStatus(sbx)!!
     check(px.screen == 5 && px.hasExt && px.xferState == P.XFER_RECEIVING && px.xferId == 7 && px.xferNext == 300 && px.xferReason == 0 && px.customCrc == 0xCBF43926L, "extended status decoded")
-    check(px.artCrc == 0x11223344L, "album-art CRC decoded from the extended status")
-    check(!P.parseStatus(sb)!!.hasExt && P.parseStatus(sb)!!.customCrc == 0L && P.parseStatus(sb)!!.artCrc == 0L, "a 10-byte status from older firmware has no transfer fields")
-    out.append("STATUS_EXT|${hex(sbx)}|screen=5 receiving xfer=7 next=300 crc=cbf43926 art=11223344\n")
+    check(!P.parseStatus(sb)!!.hasExt && P.parseStatus(sb)!!.customCrc == 0L, "a 10-byte status from older firmware has no transfer fields")
+    // ---- custom screens in slots (firmware 1.3) ----
+    run {
+        val b16 = P.imgBegin(3, P.KIND_CUSTOM, 5000, 0xCAFEBABEL, 190, 240, 320); check(b16.size == 3 + 16, "the original custom BEGIN is still 16 bytes")
+        val b17 = P.imgBegin(3, P.KIND_SCREEN, 5000, 0xCAFEBABEL, 190, 240, 320, 3); check(b17.size == 3 + 17 && b17[3 + 16].toInt() == 3 && b17[3 + 1].toInt() == P.KIND_SCREEN, "a screen BEGIN carries the slot as a 17th byte")
+        check(P.imgBegin(3, P.KIND_SCREEN, 5000, 1L, 190, 240, 320, 99)[3 + 16].toInt() == P.SLOTS - 1, "the slot is clamped")
+        val sc = P.screenSlot(P.SCREEN_CUSTOM, 4); check(sc.size == 3 + 2 && sc[3].toInt() == 5 && sc[4].toInt() == 4, "MSG_SCREEN with a slot has two payload bytes")
+        check(P.screen(5).size == 3 + 1, "the one-byte MSG_SCREEN is unchanged")
+        val dl = P.deleteSlot(6); check(dl.size == 3 + 2 && dl[3].toInt() == P.CTRL_DELETE_SLOT && dl[4].toInt() == 6, "delete-slot control")
+        check(P.slotDigest(emptyMap()) == 0L && P.slotDigest(mapOf(3 to 0xDEADBEEFL, 0 to 0x01020304L)) == 0x109439c6L && P.slotDigest(mapOf(0 to 0L)) == 0L, "slot digest matches the firmware and the TypeScript definition")
+        val st = ByteArray(P.STATUS_V3_LEN); st[0] = P.PROTO.toByte(); st[1] = 1; st[2] = 3
+        val o = P.STATUS_FULL_LEN                       // the slot fields follow the 19 status bytes
+        st[o] = 0x09; st[o + 1] = 0x00; st[o + 2] = 3; st[o + 3] = 0xD2.toByte(); st[o + 4] = 0x04; st[o + 5] = 0x80.toByte(); st[o + 6] = 0x05
+        st[o + 7] = 0xD4.toByte(); st[o + 8] = 0xC3.toByte(); st[o + 9] = 0xB2.toByte(); st[o + 10] = 0xA1.toByte()
+        val ps = P.parseStatus(st)!!
+        check(ps.hasSlots && ps.slotMask == 9 && ps.activeSlot == 3 && ps.fsFreeKb == 1234 && ps.fsTotalKb == 1408 && ps.slotDigest == 0xA1B2C3D4L, "status slot fields are parsed")
+        check(!P.parseStatus(st.copyOf(P.STATUS_FULL_LEN))!!.hasSlots, "a 19-byte status (firmware before 1.3) has no slots")
+        // firmware that also reports the album-art CRC (23 bytes) puts the slot bytes after byte 23: 34 bytes in all
+        val st34 = ByteArray(P.STATUS_V3_ART_LEN); for (i in 0 until P.STATUS_FULL_LEN) st34[i] = st[i]
+        val o2 = P.STATUS_FULL_LEN + 4; for (i in 0 until P.STATUS_SLOTS_LEN) st34[o2 + i] = st[o + i]
+        st34[19] = 0x11; st34[20] = 0x22                 // album-art CRC bytes must not be mistaken for the slot mask
+        val p34 = P.parseStatus(st34)!!
+        check(p34.hasSlots && p34.slotMask == 9 && p34.activeSlot == 3 && p34.fsFreeKb == 1234 && p34.fsTotalKb == 1408 && p34.slotDigest == 0xA1B2C3D4L, "the 34-byte status (with album-art CRC) is parsed")
+    }
+    out.append("STATUS_EXT|${hex(sbx)}|screen=5 receiving xfer=7 next=300 crc=cbf43926\n")
     extrasTests()
 
     if (args.isNotEmpty()) File(args[0]).writeText(out.toString())

@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "apk": "expo prebuild --platform android --clean && cd android && ./gradlew assembleRelease",
     "test": "node tests/run.js",
-    "ios": "expo run:ios"
+    "test:browser": "node tests/browser/harness.test.js"
   },
   "dependencies": {
     "expo": "~52.0.0",

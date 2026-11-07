@@ -21,3 +21,7 @@ $CXX sketch_smoke2.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke2 && $O
 $CXX sketch_smoke_link.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke_link && $OUT/sketch_smoke_link
 $CXX sketch_smoke.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke && $OUT/sketch_smoke $OUT
 python3 to_png.py $OUT
+# ---- animated / multi-slot custom screens (pure logic, no GFX library needed)
+CS=$OUT/cs; rm -rf "$CS"; mkdir -p "$CS"; for f in custom_store mani mimg image_rx protocol; do cp ../MeowIsland/$f.h "$CS/"; done; cp cs_stubs/gfx_common.h "$CS/"
+g++ -std=c++17 -fsanitize=address,undefined -w -I ../MeowIsland mani_test.cpp -o $OUT/mani_test && $OUT/mani_test ../../tests/mani_vectors.txt
+g++ -std=c++17 -fsanitize=address,undefined -w -I stubs -I "$CS" custom_store_test.cpp -o $OUT/custom_store_test && $OUT/custom_store_test ../../tests/mani_vectors.txt
