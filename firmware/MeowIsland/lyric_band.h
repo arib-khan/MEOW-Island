@@ -4,7 +4,7 @@
 //
 // Chunks are numbered from 0 and accepted strictly in order. A chunk burst whose token changed resets the buffer; an out-of-order
 // chunk drops the half-received band (the phone sends the next line shortly). `line` must match MUSIC2's lineIdx before the mask is
-// shown, so a late burst can never display the previous lyric line.
+// shown, so a late burst can never display the previous lyric line. Default 4MB with spiffs (1.5 MB SPIFFS)
 #pragma once
 #include <string.h>
 #include "gfx_common.h"

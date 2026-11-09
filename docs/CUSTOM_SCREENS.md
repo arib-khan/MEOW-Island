@@ -16,7 +16,7 @@ The ESP32 cannot run a web engine (no GPU, about 300 KB of RAM) and Bluetooth LE
 * HTML and CSS: layout, gradients, web fonts you provide, SVG, `<canvas>`, CSS keyframes and transitions, Web Animations (`element.animate`).
 * JavaScript (switch "Run JavaScript"): timers, `requestAnimationFrame`, canvas drawing, DOM updates. The page sees a clock that starts when it loads and moves only as frames are recorded. A page that shows the time shows the time of the recording.
 * Not possible: video, audio, WebGL, `fetch`/XHR to anything (answered with an error), forms, navigation, storage, camera/location, and anything that needs the live app or the live display. A screen is a recording, so it does not react to touch or live data.
-* Length: automatic (one cycle of the longest looping animation, 3 s for script-only animation), or 2 / 4 / 8 s. Frame rate 5, 10 or 15. Up to 120 frames are recorded.
+* Length: automatic (one cycle of the longest looping CSS animation, 3 s for script-only animation), or 2 / 4 / 8 / 12 / 20 s. Frame rate 1, 2, 5, 10 or 15. For a slideshow choose a length that covers the whole loop and 1-2 fps. Up to 120 frames are recorded.
 
 ## Images, fonts, scripts
 
@@ -33,7 +33,7 @@ The Custom Screens page keeps up to 8 screens: add, preview (animated, exactly w
 
 ## Limits you will meet
 
-* Per screen at most 512 KB from the app (the display accepts 768 KB); sending takes roughly size / 4 KB per second, so a 200 KB animation takes about a minute.
+* Per screen at most 768 KB (the display's limit); sending takes roughly size / 4 KB per second, so a 200 KB animation takes about a minute. A full-screen photo costs roughly 60-80 KB, so a slideshow of six photos needs about 450 KB and the 1.5 MB partition.
 * Flash: with *Minimal SPIFFS* the display has about 190 KB for all screens; flash the *Default 4MB with spiffs* scheme for 1.5 MB. The app reads the free space from the display and tells you before sending.
 * Playback is limited by the TFT bus: roughly 15 full-screen frames per second; small moving areas are much cheaper because only the changed rectangle is drawn.
 

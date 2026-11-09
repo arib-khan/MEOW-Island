@@ -16,7 +16,7 @@ export const MANI_HEADER = 16;
 export const MANI_FRAME_HEADER = 14;
 export const MAX_SLOTS = 8;                    // MANI_SLOTS in protocol.h: screens the display can hold
 export const DEVICE_MAX_FILE = 786432;         // the firmware refuses larger files (MANI_MAX_FILE)
-export const DEFAULT_MAX_FILE = 524288;        // what the app builds by default
+export const DEFAULT_MAX_FILE = 786432;        // what the app builds by default: the display's own limit (768 KB); the screen shows the size and the send time before anything is sent
 export const MAX_FRAMES = 240;                 // MANI_MAX_FRAMES
 export const MIN_DELAY_MS = 20, MAX_DELAY_MS = 60000;
 export const MAX_CAPTURE_FRAMES = 120;         // frames the phone records per screen

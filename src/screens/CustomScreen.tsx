@@ -21,8 +21,8 @@ const RENDER_ERRORS: Record<string, string> = {
   TOO_HEAVY: 'This animation changes too much on screen to record. Lower the frame rate or the duration, or animate a smaller area.',
   NOT_FOUND: 'The files of this screen are no longer on the phone. Choose them again.',
 };
-const FPS = [5, 10, MAX_FPS];
-const DURATIONS: [string, number][] = [['Auto', 0], ['2 s', 2000], ['4 s', 4000], ['8 s', 8000]];
+const FPS = [1, 2, 5, 10, MAX_FPS];
+const DURATIONS: [string, number][] = [['Auto', 0], ['2 s', 2000], ['4 s', 4000], ['8 s', 8000], ['12 s', 12000], ['20 s', 20000]];
 
 function Seg({ label, options, value, onChange }: { label: string; options: [string, any][]; value: any; onChange: (v: any) => void }) {
   return (
@@ -186,6 +186,7 @@ export default function CustomScreen({ back }: { back: () => void }) {
           {draft.settings.animate && <>
             <Seg label="Frames per second" options={FPS.map((f) => [String(f), f] as [string, number])} value={draft.settings.fps} onChange={(v) => upd({ fps: v })} />
             <Seg label="Length" options={DURATIONS} value={draft.settings.durationMs} onChange={(v) => upd({ durationMs: v })} />
+            <Text style={{ color: C.sub, fontSize: 12, marginTop: 6 }}>Auto records one cycle of the page's CSS animation. For a slideshow or a timer-driven page choose a length that covers the whole loop (for example 18 s for six pictures that change every 3 s) and 1 or 2 frames per second, so only the changes are stored.</Text>
             <Seg label="When it ends" options={[['Automatic', 'auto'], ['Repeat', 'on'], ['Play once', 'off']]} value={draft.settings.loop} onChange={(v) => upd({ loop: v })} />
           </>}
           {!!fullStorage && <Text style={{ color: C.warn, marginTop: 8 }}>{fullStorage}</Text>}
