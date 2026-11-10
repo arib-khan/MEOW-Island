@@ -82,39 +82,42 @@ fun main(args: Array<String>) {
     vec("MUSIC2_CAPTION_WAIT", P.music2(false, false, P.LY_CAPTION_WAIT, 0, "BRAVE", "", "", ""), "art=0 sync=0 ly=8 idx=0 src=[BRAVE] prev=[] cur=[] next=[]")
     vec("MUSIC2_CAPTION_LIVE", P.music2(true, false, P.LY_AVAILABLE, 2, "YOUTUBE", "an earlier caption line", "the newest words being spoken", ""), "art=1 sync=0 ly=2 idx=2 src=[YOUTUBE] prev=[an earlier caption line] cur=[the newest words being spoken] next=[]")
     check(P.music2(false, false, 99, 0, null, null, "c".repeat(200), null).size <= 203, "music extras never exceed one frame")
-    vec("IMG_BEGIN", P.imgBegin(7, 0, 5000, 0xDEADBEEFL, 180, 240, 320), "xfer=7 kind=0 total=5000 crc=deadbeef chunk=180 w=240 h=320")
+    vec("IMG_BEGIN", P.imgBegin(7, P.KIND_PHOTO, 5000, 0xDEADBEEFL, 180, 240, 320, 3), "xfer=7 kind=2 total=5000 crc=deadbeef chunk=180 w=240 h=320 slot=3")
     vec("IMG_BEGIN_ART", P.imgBegin(8, 1, 12800, 0x12345678L, 180, 80, 80), "xfer=8 kind=1 total=12800 crc=12345678 chunk=180 w=80 h=80")
     vec("IMG_DATA", P.imgData(7, 300, byteArrayOf(0, 1, 2, 3, 4, 5), 1, 4), "xfer=7 seq=300 n=4 data=01020304")
     vec("IMG_END", P.imgEnd(7), "xfer=7")
-    vec("IMG_CTRL_DELETE", P.imgCtrl(P.CTRL_DELETE_CUSTOM), "op=2")
+    vec("IMG_CTRL_DELETE", P.deletePhoto(5), "op=4 slot=5")
+    vec("GALLERY_CFG", P.galleryCfg(10, listOf(4, 0, 7)), "sec=10 n=3 order=4,0,7")
+    vec("GALLERY_CFG_CLAMP", P.galleryCfg(1, listOf(9)), "sec=2 n=1 order=9")
+    vec("GALLERY_CFG_EMPTY", P.galleryCfg(3600, emptyList()), "sec=3600 n=0 order=")
+    vec("GALLERY_CFG_DUP", P.frame(P.MSG_GALLERY, byteArrayOf(1, 10, 0, 0, 2, 4, 4)), "REJECTED")
+    vec("GALLERY_CFG_RANGE", P.frame(P.MSG_GALLERY, byteArrayOf(1, 10, 0, 0, 1, 24)), "REJECTED")
+    vec("GALLERY_CFG_VER", P.frame(P.MSG_GALLERY, byteArrayOf(2, 10, 0, 0, 0)), "REJECTED")
+    vec("GALLERY_CFG_LEN", P.frame(P.MSG_GALLERY, byteArrayOf(1, 10, 0, 0, 3, 4, 0)), "REJECTED")
     check(P.crc32("123456789".toByteArray()) == 0xCBF43926L, "crc32 check value")
     check(P.imgData(1, 0, ByteArray(180), 0, 180).size == 3 + 3 + 180, "a data chunk fits one frame")
     val sbx = byteArrayOf(1, 1, 0, 5, 2, 0, 0x15, 1, 120, 0, 1, 7, 0x2C, 0x01, 0, 0x26, 0x39, 0xF4.toByte(), 0xCB.toByte())
     val px = P.parseStatus(sbx)!!
-    check(px.screen == 5 && px.hasExt && px.xferState == P.XFER_RECEIVING && px.xferId == 7 && px.xferNext == 300 && px.xferReason == 0 && px.customCrc == 0xCBF43926L, "extended status decoded")
-    check(!P.parseStatus(sb)!!.hasExt && P.parseStatus(sb)!!.customCrc == 0L, "a 10-byte status from older firmware has no transfer fields")
-    // ---- custom screens in slots (firmware 1.3) ----
+    check(px.screen == 5 && px.hasExt && px.xferState == P.XFER_RECEIVING && px.xferId == 7 && px.xferNext == 300 && px.xferReason == 0 && px.photoCrc == 0xCBF43926L, "extended status decoded")
+    check(!P.parseStatus(sb)!!.hasExt && P.parseStatus(sb)!!.photoCrc == 0L, "a 10-byte status from older firmware has no transfer fields")
+    // ---- photo gallery (firmware 1.3) ----
     run {
-        val b16 = P.imgBegin(3, P.KIND_CUSTOM, 5000, 0xCAFEBABEL, 190, 240, 320); check(b16.size == 3 + 16, "the original custom BEGIN is still 16 bytes")
-        val b17 = P.imgBegin(3, P.KIND_SCREEN, 5000, 0xCAFEBABEL, 190, 240, 320, 3); check(b17.size == 3 + 17 && b17[3 + 16].toInt() == 3 && b17[3 + 1].toInt() == P.KIND_SCREEN, "a screen BEGIN carries the slot as a 17th byte")
-        check(P.imgBegin(3, P.KIND_SCREEN, 5000, 1L, 190, 240, 320, 99)[3 + 16].toInt() == P.SLOTS - 1, "the slot is clamped")
-        val sc = P.screenSlot(P.SCREEN_CUSTOM, 4); check(sc.size == 3 + 2 && sc[3].toInt() == 5 && sc[4].toInt() == 4, "MSG_SCREEN with a slot has two payload bytes")
-        check(P.screen(5).size == 3 + 1, "the one-byte MSG_SCREEN is unchanged")
-        val dl = P.deleteSlot(6); check(dl.size == 3 + 2 && dl[3].toInt() == P.CTRL_DELETE_SLOT && dl[4].toInt() == 6, "delete-slot control")
-        check(P.slotDigest(emptyMap()) == 0L && P.slotDigest(mapOf(3 to 0xDEADBEEFL, 0 to 0x01020304L)) == 0x109439c6L && P.slotDigest(mapOf(0 to 0L)) == 0L, "slot digest matches the firmware and the TypeScript definition")
-        val st = ByteArray(P.STATUS_V3_LEN); st[0] = P.PROTO.toByte(); st[1] = 1; st[2] = 3
-        val o = P.STATUS_FULL_LEN                       // the slot fields follow the 19 status bytes
-        st[o] = 0x09; st[o + 1] = 0x00; st[o + 2] = 3; st[o + 3] = 0xD2.toByte(); st[o + 4] = 0x04; st[o + 5] = 0x80.toByte(); st[o + 6] = 0x05
-        st[o + 7] = 0xD4.toByte(); st[o + 8] = 0xC3.toByte(); st[o + 9] = 0xB2.toByte(); st[o + 10] = 0xA1.toByte()
-        val ps = P.parseStatus(st)!!
-        check(ps.hasSlots && ps.slotMask == 9 && ps.activeSlot == 3 && ps.fsFreeKb == 1234 && ps.fsTotalKb == 1408 && ps.slotDigest == 0xA1B2C3D4L, "status slot fields are parsed")
-        check(!P.parseStatus(st.copyOf(P.STATUS_FULL_LEN))!!.hasSlots, "a 19-byte status (firmware before 1.3) has no slots")
-        // firmware that also reports the album-art CRC (23 bytes) puts the slot bytes after byte 23: 34 bytes in all
-        val st34 = ByteArray(P.STATUS_V3_ART_LEN); for (i in 0 until P.STATUS_FULL_LEN) st34[i] = st[i]
-        val o2 = P.STATUS_FULL_LEN + 4; for (i in 0 until P.STATUS_SLOTS_LEN) st34[o2 + i] = st[o + i]
-        st34[19] = 0x11; st34[20] = 0x22                 // album-art CRC bytes must not be mistaken for the slot mask
-        val p34 = P.parseStatus(st34)!!
-        check(p34.hasSlots && p34.slotMask == 9 && p34.activeSlot == 3 && p34.fsFreeKb == 1234 && p34.fsTotalKb == 1408 && p34.slotDigest == 0xA1B2C3D4L, "the 34-byte status (with album-art CRC) is parsed")
+        val b16 = P.imgBegin(3, P.KIND_ART, 12800, 0xCAFEBABEL, 190, 80, 80); check(b16.size == 3 + 16, "the album-art BEGIN is 16 bytes")
+        val b17 = P.imgBegin(3, P.KIND_PHOTO, 5000, 0xCAFEBABEL, 190, 240, 320, 3); check(b17.size == 3 + 17 && b17[3 + 16].toInt() == 3 && b17[3 + 1].toInt() == P.KIND_PHOTO, "a photo BEGIN carries the slot as a 17th byte")
+        check(P.imgBegin(3, P.KIND_PHOTO, 5000, 1L, 190, 240, 320, 99)[3 + 16].toInt() == P.PHOTO_SLOTS - 1, "the slot is clamped")
+        check(P.screen(5).size == 3 + 1 && P.screen(P.SCREEN_GALLERY)[3].toInt() == 5, "showing the slideshow is the one-byte MSG_SCREEN")
+        val dl = P.deletePhoto(6); check(dl.size == 3 + 2 && dl[3].toInt() == P.CTRL_DELETE_PHOTO && dl[4].toInt() == 6, "delete-photo control")
+        val gc = P.galleryCfg(10, listOf(4, 0, 7, 4, 99, 24)); check(gc.size == 3 + 5 + 3 && gc[3].toInt() == 1 && gc[4].toInt() == 10 && gc[7].toInt() == 3 && gc[8].toInt() == 4 && gc[9].toInt() == 0 && gc[10].toInt() == 7, "slideshow setting drops duplicates and out-of-range slots")
+        check(P.galleryCfg(0, emptyList())[4].toInt() == P.GAL_MIN_SEC && (P.galleryCfg(99999, emptyList())[4].toInt() and 0xFF) == (P.GAL_MAX_SEC and 0xFF), "the interval is clamped to 2..3600 seconds")
+        check(P.photoDigest(emptyMap()) == 0L && P.photoDigest(mapOf(3 to 0xDEADBEEFL, 0 to 0x01020304L)) == 0x109439c6L && P.photoDigest(mapOf(0 to 0L)) == 0L, "photo digest matches the firmware")
+        val gal = byteArrayOf(0x25, 0, 0, 0, 5, 0x0A, 0, 0xDC.toByte(), 0x05, 0x6C, 0x07, 0xD4.toByte(), 0xC3.toByte(), 0xB2.toByte(), 0xA1.toByte())   // mask, shown, interval, free KB, total KB, digest
+        val st34 = sbx + gal; val g34 = P.parseStatus(st34)!!
+        check(g34.hasGallery && g34.photoMask == 0x25L && g34.shownSlot == 5 && g34.intervalSec == 10 && g34.fsFreeKb == 1500 && g34.fsTotalKb == 1900 && g34.galDigest == 0xA1B2C3D4L && g34.photoCrc == 0xCBF43926L, "gallery status (19 + 15 bytes) is parsed")
+        // firmware that also reports the album-art CRC (23 status bytes) puts the gallery bytes after byte 23: 38 bytes in all
+        val st38 = sbx + byteArrayOf(0x44, 0x33, 0x22, 0x11) + gal; val g38 = P.parseStatus(st38)!!
+        check(g38.hasGallery && g38.photoMask == 0x25L && g38.shownSlot == 5 && g38.intervalSec == 10 && g38.fsFreeKb == 1500 && g38.galDigest == 0xA1B2C3D4L, "gallery status after the album-art CRC (38 bytes) is parsed")
+        check(!P.parseStatus(sbx)!!.hasGallery && !P.parseStatus(sbx + byteArrayOf(1, 2, 3, 4))!!.hasGallery, "a status without the gallery bytes (older firmware) has no gallery")
+        out.append("STATUS_GAL|${hex(st34)}|gallery status\n")
     }
     out.append("STATUS_EXT|${hex(sbx)}|screen=5 receiving xfer=7 next=300 crc=cbf43926\n")
     extrasTests()

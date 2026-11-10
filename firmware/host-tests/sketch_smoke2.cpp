@@ -1,5 +1,5 @@
 // Drives the whole sketch through the BLE write path for the NEW features: screen time, notifications, music extras, album art and the
-// custom image (transfer -> LittleFS -> pixels on the TFT -> reboot -> still there). Uses stand-ins for GFX/LittleFS/NimBLE (see README).
+// photo gallery (JPEG transfer -> LittleFS -> decoded pixels on the TFT -> slideshow timing -> reboot -> still there). Uses stand-ins for GFX/LittleFS/NimBLE (see README).
 #include "common.h"
 #include <vector>
 #include <string>
@@ -16,16 +16,15 @@ static void le16(Bytes& b, uint32_t v) { b.push_back(v & 255); b.push_back((v >>
 static void str(Bytes& b, const char* s) { b.push_back((uint8_t)strlen(s)); b.insert(b.end(), s, s + strlen(s)); }
 static uint16_t px(int x, int y) { return tft.getBuffer()[(size_t)y * 240 + x]; }
 
-// image: left half red, right half blue, 8-row green stripe on top
-static Bytes makeImage(uint16_t left, uint16_t right) {
-  const int W = 240, H = 320; Bytes o = {'M', 'I', 1, 0}; le16(o, W); le16(o, H); le16(o, 3); le16(o, 0);
-  Bytes data; auto run_ = [&](int n, uint8_t idx) { while (n > 0) { int k = std::min(n, 65535); data.push_back(0); le16(data, k); data.push_back(idx); n -= k; } };
-  for (int y = 0; y < H; y++) { if (y < 8) run_(W, 2); else { run_(120, 0); run_(120, 1); } }
-  le32(o, (uint32_t)data.size()); le16(o, left); le16(o, right); le16(o, 0x07E0); o.insert(o.end(), data.begin(), data.end()); return o;
+// photo files made with Pillow (tests/photo_*.jpg): left half red / right half blue with an 8-row green stripe on top, and the same with the colours rotated
+static Bytes readFile(const char* path) { FILE* f = fopen(path, "rb"); Bytes o; if (!f) return o; uint8_t buf[4096]; size_t n; while ((n = fread(buf, 1, sizeof buf, f)) > 0) o.insert(o.end(), buf, buf + n); fclose(f); return o; }
+static bool near565(uint16_t a, uint16_t b) {                                  // JPEG is lossy: flat saturated colours come back within a step or two
+  return abs((a >> 11) - (b >> 11)) <= 2 && abs(((a >> 5) & 63) - ((b >> 5) & 63)) <= 3 && abs((a & 31) - (b & 31)) <= 2;
 }
 // the phone's transfer, without losses (loss handling is covered by image_test.cpp)
-static void sendImage(const Bytes& file, uint8_t id, uint8_t kind, uint16_t w, uint16_t h, uint32_t crcOverride = 0, bool use = false) {
+static void sendImage(const Bytes& file, uint8_t id, uint8_t kind, uint16_t w, uint16_t h, uint32_t crcOverride = 0, bool use = false, uint8_t slot = 0) {
   Bytes b; b.push_back(id); b.push_back(kind); le32(b, (uint32_t)file.size()); le32(b, use ? crcOverride : meow::crc32Of(file.data(), file.size())); le16(b, 180); le16(b, w); le16(b, h);
+  if (kind == meow::KIND_PHOTO) b.push_back(slot);
   write(frame(meow::MSG_IMG_BEGIN, b)); run(60);
   uint16_t seq = 0;
   for (size_t off = 0; off < file.size(); off += 180, seq++) {
@@ -102,41 +101,55 @@ int main(int, char** argv) {
   { Bytes m = {3}; le16(m, 5); le16(m, 200); str(m, "Another Song"); str(m, "Someone"); write(frame(meow::MSG_MUSIC, m)); run(300); CHECK(musicView.d2.lyricState == 0 && !musicView.d2.hasArt && !musicView.d2.cur[0], "a new track clears the old lyric lines and art flag"); }
   CHECK(!lyrReady, "a new track clears the old lyric mask");
 
-  // ---- custom screen: BOOT skips it while empty
-  CHECK(customCrc == 0, "no custom image yet"); selectScreen(meow::SCREEN_MUSIC);
-  { std::vector<uint8_t> seen; for (int i = 0; i < 6; i++) { host_btn_low = true; run(200); host_btn_low = false; run(100); seen.push_back(curScreen); } bool hit = false; for (auto s : seen) hit |= (s == meow::SCREEN_CUSTOM); CHECK(!hit, "BOOT tap never lands on the empty custom screen"); }
-  selectScreen(meow::SCREEN_CUSTOM); snap("custom_empty");
+  // ---- photo slideshow: BOOT skips it while no photo is stored
+  CHECK(photoCount() == 0, "no photo yet"); selectScreen(meow::SCREEN_MUSIC);
+  { std::vector<uint8_t> seen; for (int i = 0; i < 6; i++) { host_btn_low = true; run(200); host_btn_low = false; run(100); seen.push_back(curScreen); } bool hit = false; for (auto s : seen) hit |= (s == meow::SCREEN_GALLERY); CHECK(!hit, "BOOT tap never lands on the empty slideshow"); }
+  selectScreen(meow::SCREEN_GALLERY); snap("gallery_empty");
 
-  // ---- custom image
-  Bytes img = makeImage(0xF800, 0x001F);
-  sendImage(img, 5, meow::KIND_CUSTOM, 240, 320); CHECK(xs().state == meow::XFER_DONE && xs().reason == 0 && customCrc == meow::crc32Of(img.data(), img.size()), "custom image stored, crc reported in the status");
-  CHECK(fsData().files.count("/custom.mimg") && !fsData().files.count("/custom.tmp"), "file in flash, no temp file left"); run(200);
-  CHECK(px(10, 100) == 0xF800 && px(230, 100) == 0x001F && px(100, 3) == 0x07E0, "pixels of the design are on the TFT"); snap("custom_shown");
+  // ---- photos
+  Bytes jpgA = readFile("../../tests/photo_red_blue.jpg"), jpgB = readFile("../../tests/photo_green_red.jpg"); CHECK(jpgA.size() > 200 && jpgB.size() > 200, "test photos found");
+  sendImage(jpgA, 5, meow::KIND_PHOTO, 240, 320, 0, false, 2); CHECK(xs().state == meow::XFER_DONE && xs().reason == 0 && photos[2].crc == meow::crc32Of(jpgA.data(), jpgA.size()) && xs().photoCrc == photos[2].crc, "photo stored in slot 2, crc reported in the status");
+  CHECK(fsData().files.count("/ph02.jpg") && fsData().files.count("/ph02.m") && !fsData().files.count("/photo.tmp"), "file in flash, no temp file left"); run(300);
+  CHECK(near565(px(10, 100), 0xF800) && near565(px(230, 100), 0x001F) && near565(px(100, 3), 0x07E0), "pixels of the photo are on the TFT"); snap("gallery_shown");
   { uint8_t st[meow::STATUS_FULL_LEN]; meow::Status s0; meow::encodeStatus(s0, st); meow::encodeStatusExt(xs(), st + meow::STATUS_LEN); CHECK(st[10] == meow::XFER_DONE && st[11] == 5, "status extension carries state and id"); }
-  { bool hit = false; for (int i = 0; i < 6; i++) { host_btn_low = true; run(200); host_btn_low = false; run(100); hit |= curScreen == meow::SCREEN_CUSTOM; } CHECK(hit, "BOOT tap reaches the custom screen once a design exists"); }
-  selectScreen(meow::SCREEN_CLOCK); CHECK(customCrc != 0, "going back to the clock keeps the design");
+  { bool hit = false; for (int i = 0; i < 6; i++) { host_btn_low = true; run(200); host_btn_low = false; run(100); hit |= curScreen == meow::SCREEN_GALLERY; } CHECK(hit, "BOOT tap reaches the slideshow once a photo exists"); }
+  selectScreen(meow::SCREEN_CLOCK); CHECK(photoCount() == 1, "going back to the clock keeps the photo");
 
-  // ---- replacing: a failed upload keeps the old design visible, a good one replaces it
-  { Bytes img2 = makeImage(0x07E0, 0xF800); int writesBefore = (int)fsData().files.size(); (void)writesBefore;
-    sendImage(img2, 6, meow::KIND_CUSTOM, 240, 320, 0xDEADBEEF, true); CHECK(xs().state == meow::XFER_FAILED && xs().reason == meow::XR_CRC, "bad CRC rejected");
-    CHECK(customCrc == meow::crc32Of(img.data(), img.size()) && fsData().files["/custom.mimg"] == img && !fsData().files.count("/custom.tmp"), "old design untouched, temp file removed");
-    fsData().failWrites = true; sendImage(img2, 7, meow::KIND_CUSTOM, 240, 320); fsData().failWrites = false; CHECK(xs().state == meow::XFER_FAILED && fsData().files["/custom.mimg"] == img, "flash write failure keeps the old design");
-    fsData().total = LittleFS.usedBytes() + 6000; sendImage(img2, 8, meow::KIND_CUSTOM, 240, 320); fsData().total = 190 * 1024; CHECK(xs().state == meow::XFER_FAILED && xs().reason == meow::XR_NO_SPACE && fsData().files["/custom.mimg"] == img, "no space is reported and the old design survives");
-    sendImage(img2, 9, meow::KIND_CUSTOM, 240, 320); CHECK(xs().state == meow::XFER_DONE && fsData().files["/custom.mimg"] == img2, "a good upload replaces it");
-    sendImage(img2, 10, meow::KIND_CUSTOM, 240, 320); CHECK(xs().state == meow::XFER_DONE && !fsData().files.count("/custom.tmp"), "re-sending the same design is acknowledged without a rewrite");
+  // ---- slideshow: two photos, play order and timing from the phone
+  sendImage(jpgB, 6, meow::KIND_PHOTO, 240, 320, 0, false, 5); CHECK(xs().state == meow::XFER_DONE && photoCount() == 2, "second photo stored");
+  { Bytes c = {1}; le16(c, 3); c.push_back(0); c.push_back(2); c.push_back(5); c.push_back(2); write(frame(meow::MSG_GALLERY, c)); run(100); }
+  CHECK(galCfg.intervalSec == 3 && galCfg.n == 2 && galCfg.order[0] == 5, "slideshow setting stored");
+  selectScreen(meow::SCREEN_GALLERY); run(300); CHECK(near565(px(10, 100), 0x07E0), "the first photo of the order (slot 5) is shown first");
+  run(2000); CHECK(near565(px(10, 100), 0x07E0), "it stays for the whole interval");
+  run(1500); CHECK(near565(px(10, 100), 0xF800), "after 3 seconds the next photo (slot 2) is shown");
+  run(3200); CHECK(near565(px(10, 100), 0x07E0), "then it starts over"); snap("gallery_second");
+  { Bytes bad = {1, 3, 0, 0, 2, 5, 5}; write(frame(meow::MSG_GALLERY, bad)); run(60); CHECK(galCfg.order[1] == 2, "an invalid slideshow setting changes nothing"); }
+
+  // ---- replacing: a failed upload keeps the old photo, a good one replaces it
+  { int before = (int)fsData().files.size(); (void)before;
+    sendImage(jpgB, 7, meow::KIND_PHOTO, 240, 320, 0xDEADBEEF, true, 2); CHECK(xs().state == meow::XFER_FAILED && xs().reason == meow::XR_CRC, "bad CRC rejected");
+    CHECK(photos[2].crc == meow::crc32Of(jpgA.data(), jpgA.size()) && fsData().files["/ph02.jpg"] == jpgA && !fsData().files.count("/photo.tmp"), "old photo untouched, temp file removed");
+    fsData().failWrites = true; sendImage(jpgB, 8, meow::KIND_PHOTO, 240, 320, 0, false, 2); fsData().failWrites = false; CHECK(xs().state == meow::XFER_FAILED && fsData().files["/ph02.jpg"] == jpgA, "flash write failure keeps the old photo");
+    size_t was = fsData().total; fsData().total = LittleFS.usedBytes() + 6000; sendImage(jpgB, 9, meow::KIND_PHOTO, 240, 320, 0, false, 2); fsData().total = was; CHECK(xs().state == meow::XFER_FAILED && xs().reason == meow::XR_NO_SPACE && fsData().files["/ph02.jpg"] == jpgA, "no space is reported and the old photo survives");
+    Bytes junk = jpgA; junk[junk.size() / 2] ^= 0xFF; junk[20] ^= 0xFF; junk[21] ^= 0xFF; sendImage(junk, 10, meow::KIND_PHOTO, 240, 320, 0, false, 3); CHECK(xs().state == meow::XFER_FAILED && !fsData().files.count("/ph03.jpg"), "a file that arrives intact but is not a decodable photo is refused");
+    Bytes notJpeg(500, 7); sendImage(notJpeg, 11, meow::KIND_PHOTO, 240, 320, 0, false, 3); CHECK(xs().state == meow::XFER_FAILED && xs().reason == meow::XR_BAD_IMAGE, "bytes that are not a JPEG are refused");
+    sendImage(jpgB, 12, meow::KIND_PHOTO, 240, 320, 0, false, 2); CHECK(xs().state == meow::XFER_DONE && fsData().files["/ph02.jpg"] == jpgB, "a good upload replaces it");
+    sendImage(jpgB, 13, meow::KIND_PHOTO, 240, 320, 0, false, 2); CHECK(xs().state == meow::XFER_DONE && !fsData().files.count("/photo.tmp"), "re-sending the same photo is acknowledged without a rewrite");
   }
 
-  // ---- reboot: the design comes back from flash
-  { uint32_t was = customCrc; customCrc = 0; fsReady = false; customBoot(); CHECK(customCrc == was && fsReady, "design restored after a reboot"); }
-  { fsData().files["/custom.mimg"][30] ^= 0xFF; uint32_t was = customCrc; customBoot(); (void)was; CHECK(true, "corrupted file does not crash boot"); }
+  // ---- reboot: photos and the slideshow setting come back from flash
+  { uint32_t digest = photosDigest(); for (int i = 0; i < NPHOTO; i++) photos[i] = PhotoInfo(); galCfg = meow::GalleryCfg(); fsReady = false; photoBoot();
+    CHECK(fsReady && photosDigest() == digest && photoCount() == 2 && galCfg.intervalSec == 3 && galCfg.order[0] == 5, "photos and the setting are restored after a reboot"); }
+  { fsData().files["/ph05.jpg"][30] ^= 0xFF; fsData().files["/ph05.jpg"][31] ^= 0xFF; fsData().files.erase("/ph05.m"); photoBoot(); CHECK(!photoUsed(5) && !fsData().files.count("/ph05.jpg"), "a damaged photo is dropped at boot, the others stay"); }
 
   // ---- connection lost mid-transfer: partial data is dropped
-  { Bytes img3 = makeImage(0x001F, 0x07E0); Bytes b; b.push_back(11); b.push_back(0); le32(b, (uint32_t)img3.size()); le32(b, meow::crc32Of(img3.data(), img3.size())); le16(b, 180); le16(b, 240); le16(b, 320);
-    write(frame(meow::MSG_IMG_BEGIN, b)); run(60); Bytes d = {11}; le16(d, 0); d.insert(d.end(), img3.begin(), img3.begin() + 180); write(frame(meow::MSG_IMG_DATA, d)); run(60); CHECK(xs().state == meow::XFER_RECEIVING, "receiving");
-    scb.onDisconnect(bleServer, ci, 0); run(200); CHECK(xs().state != meow::XFER_RECEIVING && !fsData().files.count("/custom.tmp"), "link loss aborts the half-received image and removes the temp file"); }
+  { Bytes b; b.push_back(14); b.push_back(meow::KIND_PHOTO); le32(b, (uint32_t)jpgA.size()); le32(b, meow::crc32Of(jpgA.data(), jpgA.size())); le16(b, 180); le16(b, 240); le16(b, 320); b.push_back(7);
+    write(frame(meow::MSG_IMG_BEGIN, b)); run(60); Bytes d = {14}; le16(d, 0); d.insert(d.end(), jpgA.begin(), jpgA.begin() + 180); write(frame(meow::MSG_IMG_DATA, d)); run(60); CHECK(xs().state == meow::XFER_RECEIVING, "receiving");
+    scb.onDisconnect(bleServer, ci, 0); run(200); CHECK(xs().state != meow::XFER_RECEIVING && !fsData().files.count("/photo.tmp"), "link loss aborts the half-received photo and removes the temp file"); }
 
   // ---- delete
   scb.onConnect(bleServer, ci); scb.onAuthenticationComplete(ci); run(100);
-  write(frame(meow::MSG_IMG_CTRL, {meow::CTRL_DELETE_CUSTOM})); run(100); CHECK(customCrc == 0 && !fsData().files.count("/custom.mimg"), "delete removes the design");
+  write(frame(meow::MSG_IMG_CTRL, {meow::CTRL_DELETE_PHOTO, 2})); run(100); CHECK(!photoUsed(2) && !fsData().files.count("/ph02.jpg") && !fsData().files.count("/ph02.m"), "delete removes the photo and its sidecar");
+  CHECK(!fsData().files.count("/custom.mimg"), "no file of the removed custom-screen feature is left");
   printf("sketch smoke test (new features): %d checks passed, %d failed\n", ok, fails); return fails ? 1 : 0;
 }

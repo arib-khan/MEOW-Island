@@ -151,15 +151,15 @@ static void bleBegin() {
   bleRx = svc->createCharacteristic(BLE_RX_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
   bleRx->setCallbacks(&bleRxCb);
   bleStatus = svc->createCharacteristic(BLE_STATUS_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN | NIMBLE_PROPERTY::NOTIFY);
-  uint8_t zero[meow::STATUS_V3_LEN] = {0};
+  uint8_t zero[meow::STATUS_GAL_LEN] = {0};
   bleStatus->setValue(zero, sizeof zero);
   bleServer->start();
   bleBuildAdvertising(true);
 }
 
 // Called every loop: keeps the advertisement truthful (pairing open? how many phones?), publishes the status, drops stalled frames.
-static void bleService(uint32_t now, const meow::Status& st, const meow::XferStatus& xs, const meow::SlotStatus& ss) {
-  static uint8_t lastStatus[meow::STATUS_V3_LEN] = {0};
+static void bleService(uint32_t now, const meow::Status& st, const meow::XferStatus& xs, const meow::GalleryStatus& ss) {
+  static uint8_t lastStatus[meow::STATUS_GAL_LEN] = {0};
   static bool lastOpen = true; static int lastBonds = -1;
   bleAssembler.expire(now);
   if (bleLinked && bleServer && bleConn != 0xFFFF) {
@@ -171,7 +171,7 @@ static void bleService(uint32_t now, const meow::Status& st, const meow::XferSta
   }
   int bonds = bleBonds();
   if (!bleLinked && (bleAdvDirty || lastOpen != blePairingOpen || lastBonds != bonds)) { lastOpen = blePairingOpen; lastBonds = bonds; bleBuildAdvertising(blePairingOpen); }
-  uint8_t cur[meow::STATUS_V3_LEN]; meow::encodeStatus(st, cur); meow::encodeStatusExt(xs, cur + meow::STATUS_LEN); meow::encodeStatusSlots(ss, cur + meow::STATUS_FULL_LEN);
+  uint8_t cur[meow::STATUS_GAL_LEN]; meow::encodeStatus(st, cur); meow::encodeStatusExt(xs, cur + meow::STATUS_LEN); meow::encodeGalleryStatus(ss, cur + meow::STATUS_FULL_LEN);
   if (memcmp(cur, lastStatus, sizeof cur) != 0) {
     memcpy(lastStatus, cur, sizeof cur);
     bleStatus->setValue(cur, sizeof cur);

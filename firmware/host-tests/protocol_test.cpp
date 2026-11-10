@@ -40,10 +40,12 @@ static std::string summarize(const Frame& f) {
       LyricChunk c; if (!parseLyricChunk(f.payload, f.len, c)) return "REJECTED";
       snprintf(b, sizeof b, "token=%d seq=%d line=%d w=%d h=%d n=%d", c.token, c.seq, c.line, c.w, c.h, c.len); return b; }
     case MSG_IMG_BEGIN: { ImgBegin x; if (!parseImgBegin(f.payload, f.len, x)) return "REJECTED";
-      snprintf(b, sizeof b, "xfer=%d kind=%d total=%u crc=%08x chunk=%d w=%d h=%d", x.xfer, x.kind, x.total, x.crc, x.chunk, x.w, x.h); return b; }
+      snprintf(b, sizeof b, "xfer=%d kind=%d total=%u crc=%08x chunk=%d w=%d h=%d", x.xfer, x.kind, x.total, x.crc, x.chunk, x.w, x.h); if (x.kind == KIND_PHOTO) { size_t n = strlen(b); snprintf(b + n, sizeof b - n, " slot=%d", x.slot); } return b; }
     case MSG_IMG_DATA: { if (f.len < 3) return "REJECTED"; std::string hx; for (int i = 3; i < f.len; i++) { char c[4]; snprintf(c, sizeof c, "%02x", f.payload[i]); hx += c; } snprintf(b, sizeof b, "xfer=%d seq=%d n=%d data=%s", f.payload[0], rd16(f.payload + 1), f.len - 3, hx.c_str()); return b; }
     case MSG_IMG_END: snprintf(b, sizeof b, "xfer=%d", f.payload[0]); return b;
-    case MSG_IMG_CTRL: snprintf(b, sizeof b, "op=%d", f.payload[0]); return b;
+    case MSG_IMG_CTRL: if (f.len == 2) snprintf(b, sizeof b, "op=%d slot=%d", f.payload[0], f.payload[1]); else snprintf(b, sizeof b, "op=%d", f.payload[0]); return b;
+    case MSG_GALLERY: { GalleryCfg g; if (!parseGalleryCfg(f.payload, f.len, g)) return "REJECTED"; std::string o; for (int i = 0; i < g.n; i++) { if (i) o += ","; o += std::to_string(g.order[i]); }
+      snprintf(b, sizeof b, "sec=%d n=%d order=%s", g.intervalSec, g.n, o.c_str()); return b; }
     case MSG_WIFI_SET: { WifiCreds w; if (!parseWifi(f.payload, f.len, w)) return "REJECTED"; snprintf(b, sizeof b, "ssid=[%s] pass=[%s]", w.ssid, w.pass); return b; }
   }
   return "UNKNOWN";
@@ -77,9 +79,17 @@ int main(int argc, char** argv) {
     }
     if (v.name == "STATUS_EXT") {   // identical to what the phone parses: 10 status bytes + 13 transfer bytes
       Status s; s.screen = 5; s.wifiState = 2; s.timeValid = true; s.hasWifi = true; s.musicFresh = true; s.bonds = 1; s.heapKb = 120; s.fwMajor = 1; s.fwMinor = 0;
-      XferStatus x; x.state = XFER_RECEIVING; x.id = 7; x.nextSeq = 300; x.reason = XR_NONE; x.customCrc = 0xCBF43926u; x.artCrc = 0x11223344u;
+      XferStatus x; x.state = XFER_RECEIVING; x.id = 7; x.nextSeq = 300; x.reason = XR_NONE; x.photoCrc = 0xCBF43926u; x.artCrc = 0x11223344u;
       uint8_t o[STATUS_FULL_LEN]; encodeStatus(s, o); encodeStatusExt(x, o + STATUS_LEN);
       CHECK(v.bytes.size() == STATUS_FULL_LEN && memcmp(o, v.bytes.data(), STATUS_FULL_LEN) == 0, "extended status bytes identical to the phone's expectation");
+      continue;
+    }
+    if (v.name == "STATUS_GAL") {   // 10 status bytes + 13 transfer bytes + 15 gallery bytes, identical to what the phone parses
+      Status s; s.screen = 5; s.wifiState = 2; s.timeValid = true; s.hasWifi = true; s.musicFresh = true; s.bonds = 1; s.heapKb = 120; s.fwMajor = 1; s.fwMinor = 0;
+      XferStatus x; x.state = XFER_RECEIVING; x.id = 7; x.nextSeq = 300; x.reason = XR_NONE; x.photoCrc = 0xCBF43926u; x.artCrc = 0x11223344u;
+      GalleryStatus g; g.mask = 0x25; g.shown = 5; g.intervalSec = 10; g.freeKb = 1500; g.totalKb = 1900; g.digest = 0xA1B2C3D4u;
+      uint8_t o[STATUS_GAL_LEN]; encodeStatus(s, o); encodeStatusExt(x, o + STATUS_LEN); encodeGalleryStatus(g, o + STATUS_FULL_LEN);
+      CHECK(v.bytes.size() == STATUS_GAL_LEN && memcmp(o, v.bytes.data(), STATUS_GAL_LEN) == 0, "gallery status bytes identical to the phone's expectation");
       continue;
     }
     auto got = feedAll(v.bytes, v.bytes.size());

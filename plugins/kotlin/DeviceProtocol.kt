@@ -23,19 +23,21 @@ object DeviceProtocol {
     const val MSG_IMG_BEGIN = 0x0C; const val MSG_IMG_DATA = 0x0D; const val MSG_IMG_END = 0x0E; const val MSG_IMG_CTRL = 0x0F
 
     const val SCREEN_CLOCK = 0; const val SCREEN_STEPS = 1; const val SCREEN_MUSIC = 2
-    const val SCREEN_SCREENTIME = 3; const val SCREEN_NOTIFS = 4; const val SCREEN_CUSTOM = 5; const val SCREEN_LAST = 5
+    const val SCREEN_SCREENTIME = 3; const val SCREEN_NOTIFS = 4; const val SCREEN_GALLERY = 5; const val SCREEN_LAST = 5
     const val STEP_CELLS = 54
     const val MAX_TITLE = 48; const val MAX_ARTIST = 40
     const val STATUS_LEN = 10; const val STATUS_EXT_LEN = 9; const val STATUS_FULL_LEN = 19
     const val ST_MAX_APPS = 4; const val ST_NAME = 14
     const val NT_MAX = 8; const val NT_APP = 12; const val NT_TITLE = 24; const val NT_TEXT = 48
     const val M2_SRC = 14; const val M2_PREV = 40; const val M2_CUR = 56; const val M2_NEXT = 40
-    const val KIND_CUSTOM = 0; const val KIND_ART = 1; const val KIND_SCREEN = 2       // 2 = a custom screen (MANI/MIMG file) for one of the display's slots
-    const val CTRL_ABORT = 1; const val CTRL_DELETE_CUSTOM = 2; const val CTRL_CLEAR_ART = 3; const val CTRL_DELETE_SLOT = 4
-    const val SLOTS = 8                                  // custom screens the display can hold (protocol.h SLOTS)
-    // firmware 1.3 appends 11 slot bytes (mask, shown slot, flash free/total KB, digest) to the status: after byte 19 on firmware without the album-art CRC (30 bytes in all),
-    // after byte 23 on firmware with it (34 bytes in all). The total length tells which; see parseStatus.
-    const val STATUS_SLOTS_LEN = 11; const val STATUS_V3_LEN = STATUS_FULL_LEN + STATUS_SLOTS_LEN; const val STATUS_V3_ART_LEN = STATUS_V3_LEN + 4
+    const val KIND_ART = 1; const val KIND_PHOTO = 2      // 2 = a gallery photo (baseline JPEG, 240 x 320) for one of the display's photo slots
+    const val CTRL_ABORT = 1; const val CTRL_CLEAR_ART = 3; const val CTRL_DELETE_PHOTO = 4
+    const val MSG_GALLERY = 0x11                          // slideshow timing and order (latest wins)
+    const val PHOTO_SLOTS = 24; const val PHOTO_MAX_FILE = 49152   // photos the display holds / the largest file it accepts (protocol.h)
+    const val GAL_MIN_SEC = 2; const val GAL_MAX_SEC = 3600
+    // firmware 1.3 appends 15 gallery bytes (photo mask, shown slot, interval, flash free/total KB, digest) to the status: after byte 19 on firmware without the
+    // album-art CRC (34 bytes in all), after byte 23 on firmware with it (38 bytes in all). The total length tells which; see parseStatus.
+    const val GAL_STATUS_LEN = 15; const val STATUS_GAL_LEN = STATUS_FULL_LEN + GAL_STATUS_LEN; const val STATUS_GAL_ART_LEN = STATUS_GAL_LEN + 4
     const val IMG_CHUNK = 180
     const val XFER_IDLE = 0; const val XFER_RECEIVING = 1; const val XFER_DONE = 2; const val XFER_FAILED = 3
     // lyric states carried by MUSIC2
@@ -52,8 +54,6 @@ object DeviceProtocol {
 
     fun hello() = frame(MSG_HELLO, byteArrayOf(PROTO.toByte()))
     fun screen(id: Int) = frame(MSG_SCREEN, byteArrayOf(id.coerceIn(0, SCREEN_LAST).toByte()))
-    /** Shows one of the custom screens (firmware 1.3 and later; older firmware ignores the slot byte's frame, so only send it when the status has slots). */
-    fun screenSlot(id: Int, slot: Int) = frame(MSG_SCREEN, byteArrayOf(id.coerceIn(0, SCREEN_LAST).toByte(), slot.coerceIn(0, SLOTS - 1).toByte()))
     fun time(epochSec: Long, tzMinutes: Int) = frame(MSG_TIME, le32(epochSec) + le16(tzMinutes.coerceIn(-840, 840)))
     fun wifiClear() = frame(MSG_WIFI_CLEAR)
     fun unpair(clearWifi: Boolean) = frame(MSG_UNPAIR, byteArrayOf(if (clearWifi) 1 else 0))
@@ -157,21 +157,27 @@ object DeviceProtocol {
 
     // ------------------------------------------------------------------ image transfer (custom screen file, album art)
     fun crc32(data: ByteArray): Long { val c = java.util.zip.CRC32(); c.update(data, 0, data.size); return c.value }
-    /** [slot] is sent (17-byte BEGIN) only for [KIND_SCREEN]; the original kinds keep their 16-byte BEGIN byte for byte. */
+    /** [slot] is sent (17-byte BEGIN) only for [KIND_PHOTO]; album art keeps its 16-byte BEGIN. */
     fun imgBegin(xfer: Int, kind: Int, total: Int, crc: Long, chunk: Int, w: Int, h: Int, slot: Int = 0) =
         frame(MSG_IMG_BEGIN, byteArrayOf(xfer.toByte(), kind.toByte()) + le32(total.toLong()) + le32(crc) + le16(chunk) + le16(w) + le16(h) +
-            (if (kind == KIND_SCREEN) byteArrayOf(slot.coerceIn(0, SLOTS - 1).toByte()) else ByteArray(0)))
+            (if (kind == KIND_PHOTO) byteArrayOf(slot.coerceIn(0, PHOTO_SLOTS - 1).toByte()) else ByteArray(0)))
     fun imgData(xfer: Int, seq: Int, data: ByteArray, off: Int, len: Int) = frame(MSG_IMG_DATA, byteArrayOf(xfer.toByte()) + le16(seq) + data.copyOfRange(off, off + len))
     fun imgEnd(xfer: Int) = frame(MSG_IMG_END, byteArrayOf(xfer.toByte()))
     fun imgCtrl(op: Int) = frame(MSG_IMG_CTRL, byteArrayOf(op.toByte()))
-    /** Removes one custom screen from the display. */
-    fun deleteSlot(slot: Int) = frame(MSG_IMG_CTRL, byteArrayOf(CTRL_DELETE_SLOT.toByte(), slot.coerceIn(0, SLOTS - 1).toByte()))
+    /** Removes one photo from the display. */
+    fun deletePhoto(slot: Int) = frame(MSG_IMG_CTRL, byteArrayOf(CTRL_DELETE_PHOTO.toByte(), slot.coerceIn(0, PHOTO_SLOTS - 1).toByte()))
 
-    /** CRC-32 over (slot u8, file CRC-32 u32 little-endian) of every occupied slot in slot order; 0 when there is none. Same as firmware mani.h slotDigest. */
-    fun slotDigest(crcBySlot: Map<Int, Long>): Long {
+    /** CRC-32 over (slot u8, file CRC-32 u32 little-endian) of every occupied slot in slot order; 0 when there is none. Same as firmware crc32.h photoDigest. */
+    fun photoDigest(crcBySlot: Map<Int, Long>): Long {
         val c = java.util.zip.CRC32(); var any = false
         for (slot in crcBySlot.keys.sorted()) { val crc = crcBySlot.getValue(slot); if (crc == 0L) continue; c.update(byteArrayOf(slot.toByte()) + le32(crc)); any = true }
         return if (any) c.value else 0L
+    }
+
+    /** Slideshow setting: seconds per photo (clamped to 2..3600) and the slots in play order (duplicates and out-of-range slots are dropped; at most 24). */
+    fun galleryCfg(intervalSec: Int, order: List<Int>): ByteArray {
+        val slots = ArrayList<Int>(); for (s in order) if (s in 0 until PHOTO_SLOTS && s !in slots) slots.add(s)
+        return frame(MSG_GALLERY, byteArrayOf(1) + le16(intervalSec.coerceIn(GAL_MIN_SEC, GAL_MAX_SEC)) + byteArrayOf(0, slots.size.toByte()) + ByteArray(slots.size) { slots[it].toByte() })
     }
 
     /** Splits a byte stream into BLE writes of at most [size] bytes (the device reassembles frames from the stream). */
@@ -186,9 +192,9 @@ object DeviceProtocol {
                  val timeValid: Boolean, val pairingOpen: Boolean, val hasWifi: Boolean, val stepsFresh: Boolean, val musicFresh: Boolean,
                  val bonds: Int, val heapKb: Int,
                  // transfer feedback (bytes 10..18); hasExt = false on firmware that predates the image transfer
-                 val hasExt: Boolean = false, val xferState: Int = 0, val xferId: Int = 0, val xferNext: Int = 0, val xferReason: Int = 0, val customCrc: Long = 0L,
-                 // bytes 19..29 on firmware 1.3+: which custom slots are filled, which one is shown, flash storage left / in total (KB), digest of (slot, CRC) pairs
-                 val hasSlots: Boolean = false, val slotMask: Int = 0, val activeSlot: Int = 0, val fsFreeKb: Int = 0, val fsTotalKb: Int = 0, val slotDigest: Long = 0L)
+                 val hasExt: Boolean = false, val xferState: Int = 0, val xferId: Int = 0, val xferNext: Int = 0, val xferReason: Int = 0, val photoCrc: Long = 0L,
+                 // firmware 1.3+: which photo slots are filled, which one is shown, seconds per photo, flash storage left / in total (KB), digest of (slot, CRC) pairs
+                 val hasGallery: Boolean = false, val photoMask: Long = 0L, val shownSlot: Int = 0, val intervalSec: Int = 0, val fsFreeKb: Int = 0, val fsTotalKb: Int = 0, val galDigest: Long = 0L)
 
     fun parseStatus(b: ByteArray?): Status? {
         if (b == null || b.size < STATUS_LEN) return null
@@ -196,20 +202,21 @@ object DeviceProtocol {
         if (u(0) != PROTO) return null
         val f = u(6)
         val ext = b.size >= STATUS_FULL_LEN
-        val withSlots = b.size >= STATUS_V3_LEN
-        val so = if (b.size >= STATUS_V3_ART_LEN) STATUS_FULL_LEN + 4 else STATUS_FULL_LEN      // where the slot bytes start
+        val withGal = b.size >= STATUS_GAL_LEN
+        val go = if (b.size >= STATUS_GAL_ART_LEN) STATUS_FULL_LEN + 4 else STATUS_FULL_LEN      // where the gallery bytes start
         return Status(u(0), u(1), u(2), u(3).coerceIn(0, SCREEN_LAST), u(4).coerceIn(0, 3), u(5), f and 1 != 0, f and 2 != 0, f and 4 != 0, f and 8 != 0, f and 16 != 0, u(7), u(8),
             ext, if (ext) u(10) else 0, if (ext) u(11) else 0, if (ext) u(12) or (u(13) shl 8) else 0, if (ext) u(14) else 0,
             if (ext) (u(15).toLong() or (u(16).toLong() shl 8) or (u(17).toLong() shl 16) or (u(18).toLong() shl 24)) else 0L,
-            withSlots, if (withSlots) u(so) or (u(so + 1) shl 8) else 0, if (withSlots) u(so + 2) else 0, if (withSlots) u(so + 3) or (u(so + 4) shl 8) else 0, if (withSlots) u(so + 5) or (u(so + 6) shl 8) else 0,
-            if (withSlots) (u(so + 7).toLong() or (u(so + 8).toLong() shl 8) or (u(so + 9).toLong() shl 16) or (u(so + 10).toLong() shl 24)) else 0L)
+            withGal, if (withGal) (u(go).toLong() or (u(go + 1).toLong() shl 8) or (u(go + 2).toLong() shl 16) or (u(go + 3).toLong() shl 24)) else 0L, if (withGal) u(go + 4) else 0,
+            if (withGal) u(go + 5) or (u(go + 6) shl 8) else 0, if (withGal) u(go + 7) or (u(go + 8) shl 8) else 0, if (withGal) u(go + 9) or (u(go + 10) shl 8) else 0,
+            if (withGal) (u(go + 11).toLong() or (u(go + 12).toLong() shl 8) or (u(go + 13).toLong() shl 16) or (u(go + 14).toLong() shl 24)) else 0L)
     }
 
     /** Messages for the reason codes the device reports (protocol.h XferReason). */
     fun xferReasonText(code: Int) = when (code) {
         1 -> "The device did not accept the picture header. Update the device firmware."
         2 -> "The design is too large for the device."
-        3 -> "The device is out of storage space. Delete another screen, or flash it with the \"Default 4MB with spiffs\" partition scheme (1.5 MB of storage)."
+        3 -> "The device is out of storage space. Remove a photo, or flash the display with a partition scheme that has more storage (for example \"No OTA (2MB APP/2MB SPIFFS)\")."
         4 -> "The device could not write to its flash memory."
         5 -> "The data arrived damaged (checksum mismatch). Try again closer to the device."
         6 -> "The device stopped responding during the transfer."

@@ -18,7 +18,7 @@ constexpr uint32_t FRAME_TIMEOUT_MS = 2000;     // a half-received frame older t
 
 enum MsgType : uint8_t {
   MSG_HELLO = 0x01,       // [proto u8]
-  MSG_SCREEN = 0x02,      // [screen u8: 0 clock, 1 steps, 2 music, 3 screen time, 4 notifications, 5 custom] or [screen u8][slot u8] (slot picks one of the custom screens)
+  MSG_SCREEN = 0x02,      // [screen u8: 0 clock, 1 steps, 2 music, 3 screen time, 4 notifications, 5 photo slideshow]
   MSG_STEPS = 0x03,       // see StepsData
   MSG_MUSIC = 0x04,       // see MusicData
   MSG_WIFI_SET = 0x05,    // [ssidLen u8][ssid][passLen u8][pass]
@@ -34,10 +34,11 @@ enum MsgType : uint8_t {
   MSG_IMG_END = 0x0E,     // [xfer u8]
   MSG_IMG_CTRL = 0x0F,    // [op u8: 1 abort transfer, 2 delete custom image, 3 clear album art]
   MSG_LYRIC = 0x10,       // see LyricChunk     (queued chunks of the phone-rendered lyric mask)
+  MSG_GALLERY = 0x11,     // see GalleryCfg     (slideshow timing and order; latest wins)
 };
-constexpr uint8_t MSG_LAST = 0x10;
+constexpr uint8_t MSG_LAST = 0x11;
 
-enum Screen : uint8_t { SCREEN_CLOCK = 0, SCREEN_STEPS = 1, SCREEN_MUSIC = 2, SCREEN_SCREENTIME = 3, SCREEN_NOTIFS = 4, SCREEN_CUSTOM = 5, SCREEN_COUNT = 6 };
+enum Screen : uint8_t { SCREEN_CLOCK = 0, SCREEN_STEPS = 1, SCREEN_MUSIC = 2, SCREEN_SCREENTIME = 3, SCREEN_NOTIFS = 4, SCREEN_GALLERY = 5, SCREEN_COUNT = 6 };
 enum WifiState : uint8_t { WIFI_NONE = 0, WIFI_CONNECTING = 1, WIFI_CONNECTED = 2, WIFI_FAILED = 3 };
 enum WifiReason : uint8_t { REASON_NONE = 0, REASON_NOT_FOUND = 1, REASON_AUTH = 2, REASON_TIMEOUT = 3, REASON_OTHER = 4 };
 
@@ -294,59 +295,73 @@ inline bool parseLyricChunk(const uint8_t* p, uint8_t n, LyricChunk& o) {
 }
 inline bool isLyricClear(const uint8_t* p, uint8_t n) { return n == 2 && p[0] == 0 && p[1] == 0; }
 
-// ---- image transfer (custom HTML screen and album art) ----
-// BEGIN: [xfer u8][kind u8: 0 custom screen file, 1 album art raw RGB565][total u32][crc32 u32][chunk u16][w u16][h u16]   (16 bytes)
+// ---- image transfer (gallery photos and album art) ----
+// BEGIN: [xfer u8][kind u8][total u32][crc32 u32][chunk u16][w u16][h u16]   (16 bytes); kind 2 appends [slot u8] (17 bytes)
+//   kind 1 = album art, raw RGB565, kept in RAM;  kind 2 = a gallery photo: a baseline JPEG of exactly w x h (240 x 320), kept in flash slot `slot`
 // DATA : [xfer u8][seq u16][bytes ...]   chunks are numbered from 0 and accepted strictly in order; anything else is dropped and the phone resends
 // END  : [xfer u8]
-// CTRL : [op u8]
+// CTRL : [op u8]  (1 abort the running transfer, 3 clear album art)   or   [4][slot u8]  (delete one photo)
 // crc32 is the standard IEEE CRC-32 over all `total` bytes. The device answers through the status extension (encodeStatusExt).
-// kind 0 = the original single custom image (MIMG file, always stored in slot 0), kind 1 = album art, kind 2 = a custom screen (MANI file or MIMG file)
-// stored in the slot named by the 17th BEGIN byte. The display holds MANI_SLOTS screens.
-constexpr uint8_t KIND_CUSTOM = 0, KIND_ART = 1, KIND_SCREEN = 2;
-constexpr uint8_t SLOTS = 8;
+constexpr uint8_t KIND_ART = 1, KIND_PHOTO = 2;
+constexpr uint8_t PHOTO_SLOTS = 24;                           // photos the display can hold
+constexpr uint32_t PHOTO_MAX_FILE = 49152, PHOTO_MIN_FILE = 160;
 constexpr uint8_t IMG_BEGIN_LEN = 16, IMG_BEGIN_SLOT_LEN = 17, IMG_MAX_CHUNK = 190;
-constexpr uint8_t CTRL_ABORT = 1, CTRL_DELETE_CUSTOM = 2, CTRL_CLEAR_ART = 3, CTRL_DELETE_SLOT = 4;   // CTRL_DELETE_SLOT is the only 2-byte CTRL: [4][slot]
+constexpr uint8_t CTRL_ABORT = 1, CTRL_CLEAR_ART = 3, CTRL_DELETE_PHOTO = 4;   // CTRL_DELETE_PHOTO is the only 2-byte CTRL: [4][slot]
 constexpr uint8_t ART_MAX_SIDE = 128;
 struct ImgBegin { uint8_t xfer = 0, kind = 0; uint32_t total = 0, crc = 0; uint16_t chunk = 0, w = 0, h = 0; uint8_t slot = 0; };
 inline bool parseImgBegin(const uint8_t* p, uint8_t n, ImgBegin& o) {
   if (n != IMG_BEGIN_LEN && n != IMG_BEGIN_SLOT_LEN) return false;
   ImgBegin b; b.xfer = p[0]; b.kind = p[1]; b.total = rd32(p + 2); b.crc = rd32(p + 6); b.chunk = rd16(p + 10); b.w = rd16(p + 12); b.h = rd16(p + 14);
-  if (b.kind > KIND_SCREEN) return false;
-  if (b.kind == KIND_SCREEN) { if (n != IMG_BEGIN_SLOT_LEN || p[16] >= SLOTS) return false; b.slot = p[16]; }
+  if (b.kind != KIND_ART && b.kind != KIND_PHOTO) return false;
+  if (b.kind == KIND_PHOTO) { if (n != IMG_BEGIN_SLOT_LEN || p[16] >= PHOTO_SLOTS) return false; b.slot = p[16]; }
   else if (n != IMG_BEGIN_LEN) return false;
   if (!(b.chunk >= 1 && b.chunk <= IMG_MAX_CHUNK && b.total > 0)) return false;
   o = b; return true;
-}
-// MSG_SCREEN: [screen u8] or [screen u8][slot u8]. hasSlot tells which; the caller decides what to do with an out-of-range screen id (clock).
-struct ScreenSel { uint8_t screen = 0, slot = 0; bool hasSlot = false; };
-inline bool parseScreenSel(const uint8_t* p, uint8_t n, ScreenSel& o) {
-  if (n != 1 && n != 2) return false;
-  ScreenSel s; s.screen = p[0]; if (n == 2) { if (p[1] >= SLOTS) return false; s.slot = p[1]; s.hasSlot = true; }
-  o = s; return true;
 }
 
 enum XferState : uint8_t { XFER_IDLE = 0, XFER_RECEIVING = 1, XFER_DONE = 2, XFER_FAILED = 3 };
 enum XferReason : uint8_t { XR_NONE = 0, XR_BAD_HEADER = 1, XR_TOO_LARGE = 2, XR_NO_SPACE = 3, XR_FLASH = 4, XR_CRC = 5, XR_SEQUENCE = 6, XR_BAD_IMAGE = 7, XR_NO_MEMORY = 8, XR_BUSY = 9 };
 
-// Status extension, appended after the 10 status bytes: [state u8][xfer u8][nextSeq u16][reason u8][customCrc u32][artCrc u32]
-// artCrc is the CRC-32 of the album art currently held in RAM (0 = none). Firmware before the art CRC sends 19 bytes; the phone
-// treats a short status as "unknown", so both directions stay compatible.
+// Status extension, appended after the 10 status bytes: [state u8][xfer u8][nextSeq u16][reason u8][photoCrc u32][artCrc u32]
+// photoCrc is the CRC-32 of the photo slot the current / last photo transfer targeted (0 = empty); artCrc is the CRC-32 of the album art held in RAM
+// (0 = none).
 constexpr uint8_t STATUS_EXT_LEN = 13, STATUS_FULL_LEN = STATUS_LEN + STATUS_EXT_LEN;
-struct XferStatus { uint8_t state = XFER_IDLE, id = 0, reason = XR_NONE; uint16_t nextSeq = 0; uint32_t customCrc = 0, artCrc = 0; };
+struct XferStatus { uint8_t state = XFER_IDLE, id = 0, reason = XR_NONE; uint16_t nextSeq = 0; uint32_t photoCrc = 0, artCrc = 0; };
 inline void encodeStatusExt(const XferStatus& x, uint8_t* o) {   // writes STATUS_EXT_LEN bytes at o (pass status + STATUS_LEN)
-  o[0] = x.state; o[1] = x.id; wr16(o + 2, x.nextSeq); o[4] = x.reason; wr32(o + 5, x.customCrc); wr32(o + 9, x.artCrc);
+  o[0] = x.state; o[1] = x.id; wr16(o + 2, x.nextSeq); o[4] = x.reason; wr32(o + 5, x.photoCrc); wr32(o + 9, x.artCrc);
 }
 
-// Status extension 2 (firmware 1.3), appended after the 23 bytes above: [slotMask u16][activeSlot u8][fsFreeKb u16][fsTotalKb u16][slotDigest u32]
-//   slotMask   : bit n set = custom slot n holds a screen
-//   activeSlot : the slot the custom screen shows (or showed last)
-//   fsFreeKb / fsTotalKb : flash storage left / in total (LittleFS), so the phone can refuse a screen that cannot fit before sending it
-//   slotDigest : CRC-32 over (slot u8, file CRC-32 u32) of every occupied slot (mani.h slotDigest); the phone compares it with its own library
-// Firmware before 1.3 sends 23 bytes; the phone then knows the display cannot hold several or animated screens.
-constexpr uint8_t STATUS_SLOTS_LEN = 11, STATUS_V3_LEN = STATUS_FULL_LEN + STATUS_SLOTS_LEN;
-struct SlotStatus { uint16_t mask = 0; uint8_t active = 0; uint16_t freeKb = 0, totalKb = 0; uint32_t digest = 0; };
-inline void encodeStatusSlots(const SlotStatus& s, uint8_t* o) {   // writes STATUS_SLOTS_LEN bytes at o (pass status + STATUS_FULL_LEN)
-  wr16(o, s.mask); o[2] = s.active; wr16(o + 3, s.freeKb); wr16(o + 5, s.totalKb); wr32(o + 7, s.digest);
+// Status extension 2 (gallery, firmware 1.3), appended after the bytes above:
+//   [photoMask u32][shownSlot u8][intervalSec u16][fsFreeKb u16][fsTotalKb u16][digest u32]      (15 bytes)
+//   photoMask  : bit n set = photo slot n holds a photo
+//   shownSlot  : the photo slot on the display (or shown last)
+//   intervalSec: the slideshow interval the display uses
+//   fsFreeKb / fsTotalKb : flash storage left / in total, so the phone can refuse a photo that cannot fit before sending it
+//   digest     : CRC-32 over (slot u8, file CRC-32 u32 little-endian) of every occupied slot in slot order, 0 when none (slotDigest in photo_store.h);
+//                the phone compares it with its own library to know whether the display holds exactly its photos
+// Older firmware stops after the bytes above; the phone then knows the display has no gallery.
+constexpr uint8_t GAL_STATUS_LEN = 15, STATUS_GAL_LEN = STATUS_FULL_LEN + GAL_STATUS_LEN;
+struct GalleryStatus { uint32_t mask = 0; uint8_t shown = 0; uint16_t intervalSec = 0, freeKb = 0, totalKb = 0; uint32_t digest = 0; };
+inline void encodeGalleryStatus(const GalleryStatus& s, uint8_t* o) {   // writes GAL_STATUS_LEN bytes at o (pass status + STATUS_FULL_LEN)
+  wr32(o, s.mask); o[4] = s.shown; wr16(o + 5, s.intervalSec); wr16(o + 7, s.freeKb); wr16(o + 9, s.totalKb); wr32(o + 11, s.digest);
+}
+
+// MSG_GALLERY: [version u8 = 1][intervalSec u16][flags u8 = 0][n u8][slot u8 x n]
+//   the slideshow shows the listed photo slots in this order, each for intervalSec seconds (clamped to GAL_MIN_SEC..GAL_MAX_SEC), then starts over.
+//   Slots without a stored photo are skipped. An invalid message (wrong version or length, a slot out of range or listed twice) is ignored.
+constexpr uint16_t GAL_MIN_SEC = 2, GAL_MAX_SEC = 3600, GAL_DEFAULT_SEC = 10;
+constexpr uint8_t GAL_CFG_MAX = 5 + PHOTO_SLOTS;
+struct GalleryCfg { uint16_t intervalSec = GAL_DEFAULT_SEC; uint8_t n = 0; uint8_t order[PHOTO_SLOTS] = {0}; };
+inline bool parseGalleryCfg(const uint8_t* p, uint8_t len, GalleryCfg& o) {
+  if (len < 5 || p[0] != 1) return false;
+  GalleryCfg c; uint16_t sec = rd16(p + 1); c.intervalSec = sec < GAL_MIN_SEC ? GAL_MIN_SEC : sec > GAL_MAX_SEC ? GAL_MAX_SEC : sec;
+  uint8_t n = p[4]; if (n > PHOTO_SLOTS || len != 5 + n) return false;
+  uint32_t seen = 0;
+  for (uint8_t i = 0; i < n; i++) { uint8_t sl = p[5 + i]; if (sl >= PHOTO_SLOTS || (seen >> sl & 1)) return false; seen |= 1u << sl; c.order[i] = sl; }
+  c.n = n; o = c; return true;
+}
+inline uint8_t encodeGalleryCfg(const GalleryCfg& c, uint8_t* out) {       // out must hold GAL_CFG_MAX bytes
+  out[0] = 1; wr16(out + 1, c.intervalSec); out[3] = 0; out[4] = c.n; for (uint8_t i = 0; i < c.n; i++) out[5 + i] = c.order[i]; return (uint8_t)(5 + c.n);
 }
 
 }  // namespace meow

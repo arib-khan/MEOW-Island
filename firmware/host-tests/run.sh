@@ -16,12 +16,13 @@ $OUT/regress_original $OUT; $OUT/regress_new $OUT
 ok=1; for i in 0 1 2 3 4 5 6; do if cmp -s $OUT/orig_$i.raw $OUT/new_$i.raw; then echo "clock frame $i: identical to the original"; else echo "clock frame $i: DIFFERENT"; ok=0; fi; done
 [ $ok = 1 ] || { echo "CLOCK REGRESSION"; exit 1; }
 $CXX render_screens.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/render_screens && $OUT/render_screens $OUT
-$CXX -fsanitize=address,undefined -o $OUT/image_test image_test.cpp && $OUT/image_test ../../tests/mimg_vectors.txt
+# ---- photo gallery: JPEG decoder against Pillow's libjpeg, transfer receiver, photo store + slideshow
+python3 ../../tools/make_jpeg_corpus.py $OUT/jc
+$CXX -fsanitize=address,undefined -o $OUT/jpeg_test jpeg_test.cpp && $OUT/jpeg_test $OUT/jc
+$CXX -fsanitize=address,undefined -o $OUT/image_test image_test.cpp && $OUT/image_test $OUT/jc
+CS=$OUT/cs; rm -rf "$CS"; mkdir -p "$CS"; for f in photo_store jpeg_dec crc32 image_rx protocol; do cp ../MeowIsland/$f.h "$CS/"; done; cp cs_stubs/gfx_common.h "$CS/"
+g++ -std=c++17 -fsanitize=address,undefined -w -I stubs -I "$CS" photo_store_test.cpp -o $OUT/photo_store_test && $OUT/photo_store_test
 $CXX sketch_smoke2.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke2 && $OUT/sketch_smoke2 $OUT
 $CXX sketch_smoke_link.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke_link && $OUT/sketch_smoke_link
 $CXX sketch_smoke.cpp "$DEPS/gfxp/Adafruit_GFX.cpp" -o $OUT/sketch_smoke && $OUT/sketch_smoke $OUT
 python3 to_png.py $OUT
-# ---- animated / multi-slot custom screens (pure logic, no GFX library needed)
-CS=$OUT/cs; rm -rf "$CS"; mkdir -p "$CS"; for f in custom_store mani mimg image_rx protocol; do cp ../MeowIsland/$f.h "$CS/"; done; cp cs_stubs/gfx_common.h "$CS/"
-g++ -std=c++17 -fsanitize=address,undefined -w -I ../MeowIsland mani_test.cpp -o $OUT/mani_test && $OUT/mani_test ../../tests/mani_vectors.txt
-g++ -std=c++17 -fsanitize=address,undefined -w -I stubs -I "$CS" custom_store_test.cpp -o $OUT/custom_store_test && $OUT/custom_store_test ../../tests/mani_vectors.txt
