@@ -11,7 +11,7 @@
 #pragma once
 #include "gfx_common.h"
 #include "protocol.h"
-#include "custom_store.h"      // artBuf / artReady / artRev
+#include "photo_store.h"      // artBuf / artReady / artRev
 #include "lyric_band.h"        // lyrBuf / lyrReady / lyrRev (phone-rendered lyric mask)
 
 struct MusicView {
