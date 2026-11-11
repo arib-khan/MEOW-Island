@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -66,8 +67,7 @@ export default function Navbar() {
     <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6">
       <nav aria-label="Primary" className="glass mx-auto flex max-w-6xl items-center justify-between rounded-full py-2 pl-4 pr-2">
         <Link href="/#home" className="flex items-center gap-2.5 font-bold tracking-tight" aria-label="MEOW Island home">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="" width={28} height={28} className="rounded-lg" />
+          <Image src="/logo.svg" alt="" width={28} height={28} className="rounded-lg" unoptimized />
           <span>MEOW Island</span>
         </Link>
         <div className="hidden items-center gap-0.5 lg:flex">{NAV.map((n) => link(n.id, n.label, n.href))}</div>

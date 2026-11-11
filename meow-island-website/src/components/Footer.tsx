@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { SITE } from "@/lib/site";
 import { PawPrint } from "./CatFace";
@@ -6,11 +7,10 @@ export default function Footer() {
   const year = new Date().getFullYear();
   return (
     <footer className="relative border-t border-lilac/10 px-5 pb-10 pt-14 sm:px-8">
-      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
           <div className="flex items-center gap-2.5 text-lg font-bold">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="" width={32} height={32} className="rounded-lg" />
+            <Image src="/logo.svg" alt="" width={32} height={32} className="rounded-lg" unoptimized />
             MEOW Island
           </div>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-mist">
@@ -22,9 +22,17 @@ export default function Footer() {
           <ul className="space-y-2 text-mist">
             <li><a className="hover:text-white" href={SITE.repo} target="_blank" rel="noopener noreferrer">GitHub repository</a></li>
             <li><a className="hover:text-white" href={SITE.issues} target="_blank" rel="noopener noreferrer">Support and issues</a></li>
+            <li><a className="hover:text-white" href={SITE.releases} target="_blank" rel="noopener noreferrer">Releases</a></li>
             <li><a className="hover:text-white" href={SITE.setupDoc} target="_blank" rel="noopener noreferrer">Setup guide</a></li>
           </ul>
         </nav>
+        <div className="text-sm">
+          <h2 className="mb-3 font-semibold text-white">Contact</h2>
+          <ul className="space-y-2 text-mist">
+            <li><a className="hover:text-white" href={`mailto:${SITE.email.info}`}>{SITE.email.info}</a></li>
+            <li><a className="hover:text-white" href={`mailto:${SITE.email.support}`}>{SITE.email.support}</a></li>
+          </ul>
+        </div>
         <nav aria-label="Legal" className="text-sm">
           <h2 className="mb-3 font-semibold text-white">Legal</h2>
           <ul className="space-y-2 text-mist">

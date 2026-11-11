@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Bell, Droplets, Music2, Timer } from "lucide-react";
 import MotionSection from "./MotionSection";
 import CatFace from "./CatFace";
+import { SITE } from "@/lib/site";
 
 function DiagramCustomize() {
   return (
@@ -44,9 +45,9 @@ function DiagramToggles() {
 }
 
 const STEPS = [
-  { n: "01", t: "Customize your island", d: "Choose supported settings and personalize the experience.", D: DiagramCustomize },
-  { n: "02", t: "Keep essentials close", d: "Access supported controls, reminders, and notifications.", D: DiagramEssentials },
-  { n: "03", t: "Enable what matters", d: "Opt into screen-time awareness and wellness tools only when you want them.", D: DiagramToggles },
+  { n: "01", t: "Install and place your island", d: "Build the app from source (setup guide linked below), then set its size, colours and position in the app's Settings.", D: DiagramCustomize },
+  { n: "02", t: "Allow only what you need", d: "Music, notifications, screen time and steps each ask for their own Android permission. Skip one and only that feature stays off.", D: DiagramEssentials },
+  { n: "03", t: "Switch on what you want", d: "Screen-time limits, step tracking and water reminders are opt-in. You can also pair the optional ESP32 display.", D: DiagramToggles },
 ];
 
 export default function HowItWorks() {
@@ -66,6 +67,7 @@ export default function HowItWorks() {
           </MotionSection>
         ))}
       </ol>
+      <p className="mt-8 text-sm text-mist">Ready to try it? Follow the <a className="text-lilac underline underline-offset-4 hover:text-white" href={SITE.setupDoc} target="_blank" rel="noopener noreferrer">setup guide</a> (Android 10+ phone, Android Studio, USB debugging).</p>
     </section>
   );
 }

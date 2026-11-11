@@ -44,7 +44,7 @@ export default function TermsPage() {
       <p>These terms may change as the project changes. The current version is always on this page, and earlier versions are in the GitHub history. Continuing to use the app after a change means you accept the updated terms.</p>
 
       <h2>10. Contact and support</h2>
-      <p>Support is community-based. Report bugs, ask questions or request features at <a href={SITE.issues} target="_blank" rel="noopener noreferrer">{SITE.issues}</a>. No dedicated support email exists yet. <em>[Placeholder: add one here if it becomes available.]</em></p>
+      <p>Support is community-based. Email <a href={`mailto:${SITE.email.support}`}>{SITE.email.support}</a> for help, <a href={`mailto:${SITE.email.info}`}>{SITE.email.info}</a> for general enquiries, or report bugs and request features at <a href={SITE.issues} target="_blank" rel="noopener noreferrer">{SITE.issues}</a>. Replies are best-effort and not guaranteed.</p>
     </LegalLayout>
   );
 }

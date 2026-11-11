@@ -77,7 +77,7 @@ export default function PrivacyPage() {
       <p>The policy will change as the app changes. Updates will be published on this page with a new review date, and the project history on GitHub shows earlier versions.</p>
 
       <h2>12. Contact information</h2>
-      <p>No dedicated privacy contact exists yet. Please raise privacy questions or concerns as an issue at <a href={SITE.issues} target="_blank" rel="noopener noreferrer">{SITE.issues}</a>. Do not post sensitive personal information in a public issue. <em>[Placeholder: add a dedicated privacy contact here before release.]</em></p>
+      <p>Email <a href={`mailto:${SITE.email.support}`}>{SITE.email.support}</a> for privacy questions or concerns, or <a href={`mailto:${SITE.email.info}`}>{SITE.email.info}</a> for general enquiries. You can also open an issue at <a href={SITE.issues} target="_blank" rel="noopener noreferrer">{SITE.issues}</a>, but do not post sensitive personal information in a public issue.</p>
     </LegalLayout>
   );
 }
